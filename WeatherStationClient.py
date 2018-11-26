@@ -13,25 +13,20 @@ def get_credentials():
     return yaml.load(pkg_resources.resource_stream(__name__, 'credentials.yml'))
 
 
-class UnauthorizedException(Exception):
+class ApiResponseException(Exception):
+    def __init__(self, code, response):
+        self.code = code
+        # Better safe than sorry? If the server returns a non-empty response with code >= 300 we should preserve it
+        self.response = response
+
+class ApiAuthorizationException(ApiResponseException):
     pass
 
 
-class BadRequestException(Exception):
-    pass
-
-
-class ConflictException(Exception):
-    pass
-
-
-class ForbiddenException(Exception):
-    pass
-
-
-class ServerErrorException(Exception):
-    def __init__(self, message):
-        self.message = message
+class ApiResponse:
+    def __init__(self, code, response):
+        self.code = code
+        self.response = response
 
 
 class ApiClient:
@@ -329,6 +324,22 @@ class ApiClient:
     @property
     def station(self):
         return ApiClient.Station(self)
+    
+    @property
+    def data(self):
+        return ApiClient.Data(self)
+    
+    @property
+    def forecast(self):
+        return ApiClient.Forecast(self)
+    
+    @property
+    def disease(self):
+        return ApiClient.Disease(self)
+    
+    @property
+    def dev(self):
+        return ApiClient.Dev(self)
 
 
 class ClientBuilder:
@@ -362,25 +373,14 @@ class ClientBuilder:
                 kwargs['json'] = body
 
             result = await self._session.request(method, *args, **kwargs)
-            if result.status == 400:
-                raise BadRequestException()
-            if result.status == 401:
-                raise UnauthorizedException()
-            if result.status == 403:
-                raise ForbiddenException()
-            if result.status == 409:
-                raise ConflictException()
-            if result.status == 500:
-                error_message = await result.text()
-                raise ServerErrorException(error_message)
-
-            if result.status == 200:
-                success = True
-            if result.status == 204:
-                success = False
             response = await result.json(
-                content_type=None)  # Chodzi o to, by zwrocilo None gdy odp serwera jest pusta a nie rzucalo wyjatkiem
-            return {'success': success, 'response': response}
+                content_type=None)  # So that we get None in case of empty server response instead of an exception
+            
+            if result.status >= 300:
+                raise ApiResponseException(result.status, response)
+            else:
+                return ApiResponse(result.status, response)
+                
 
     class HMAC(_ConnectionBase):
 
@@ -398,7 +398,7 @@ class ClientBuilder:
             requestContents.headers['Authorization'] = 'hmac ' + self._publicKey + ':' + signature
 
     class OAuth2(_ConnectionBase):
-
+    
         credentials = get_credentials()
         client_id = credentials['client_id']
         client_secret = credentials['client_secret']
@@ -423,14 +423,11 @@ class ClientBuilder:
                     'grant_type': 'authorization_code',
                     'code': self._authorization_code
                 }
-            try:
-                response = await self._session.post('https://oauth.fieldclimate.com/token', data=params)
-            except aiohttp.ClientResponseError as e:
-                if e.status == 401:
-                    raise UnauthorizedException
-                else:
-                    raise
-            result = await response.json()
+            response = await self._session.post('https://oauth.fieldclimate.com/token', data=params)
+            result = await response.json(
+                content_type=None)
+            if response.status >= 300:
+                raise ApiAuthorizationException(response.status, result)
             self._access_token = result['access_token']
             self._refresh_token = result['refresh_token']
 
@@ -442,9 +439,12 @@ class ClientBuilder:
                 await self._get_token()
             try:
                 response = await super()._make_request(method, route, body)
-            except UnauthorizedException:
-                await self._get_token()
-                response = await super()._make_request(method, route, body)
+            except ApiResponseException as e:
+                if e.code == 401:
+                    await self._get_token()
+                    response = await super()._make_request(method, route, body)
+                else:
+                    raise
             return response
 
 
@@ -452,7 +452,7 @@ class ClientBuilder:
 async def trivialTest():
     async with ClientBuilder.OAuth2('') as client:
         user = await client.user.list_of_user_devices()
-        print(user)
+        print(user.response)
 
 
 def runTrivialTest():
