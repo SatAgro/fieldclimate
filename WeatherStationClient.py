@@ -160,23 +160,22 @@ class ApiClient:
                 uri = uri + f'/{sort}'
             return await self._send('GET', uri)
 
-        # TODO: Czy poprawna składnia URI jeśli nie ma filter
-        async def station_transmission_history_last(self, station_id, amount, filter_=None, sort=None):
+        async def station_transmission_history_last(self, station_id, amount, filter=None, sort=None):
             """Read last X amount of station transmission history. Optionally you can also sort them ASC or DESC and filter."""
             uri = f'station/{station_id}/history'
-            if filter_ is not None:
-                uri = uri + f'/{filter_}'
+            if filter is not None:
+                uri = uri + f'/{filter}'
             uri = uri + f'/last/{amount}'
             if sort is not None:
                 uri = uri + f'/{sort}'
             return await self._send('GET', uri)
 
         async def station_transmission_history_between(self, station_id, from_unix_timestamp, to_unix_timestamp,
-                                                       filter_=None, sort=None):
+                                                       filter=None, sort=None):
             """Read transmission history for specific time period. Optionally you can also sort them ASC or DESC and filter."""
-            uri = f'station/{station_id}/history/'
-            if filter_ is not None:
-                uri = uri + f'/{filter_}'
+            uri = f'station/{station_id}/history'
+            if filter is not None:
+                uri = uri + f'/{filter}'
             uri = uri + f'/from/{from_unix_timestamp}/to/{to_unix_timestamp}'
             if sort is not None:
                 uri = uri + f'/{sort}'
@@ -446,18 +445,3 @@ class ClientBuilder:
                 else:
                     raise
             return response
-
-
-# Usage example:
-async def trivialTest():
-    async with ClientBuilder.OAuth2('') as client:
-        user = await client.user.list_of_user_devices()
-        print(user.response)
-
-
-def runTrivialTest():
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(trivialTest())
-
-
-runTrivialTest()
