@@ -1,4 +1,3 @@
-import asyncio
 from abc import ABC, abstractmethod
 from datetime import datetime
 
@@ -16,8 +15,9 @@ def get_credentials():
 class ApiResponseException(Exception):
     def __init__(self, code, response):
         self.code = code
-        # Better safe than sorry? If the server returns a non-empty response with code >= 300 we should preserve it
+        # Better safe than sorry? If the server returns a non_empty response with code >= 300 we should preserve it
         self.response = response
+
 
 class ApiAuthorizationException(ApiResponseException):
     pass
@@ -299,11 +299,75 @@ class ApiClient:
 
         async def new_password_request(self, app_id, password_data):
             """Requesting application to change password of a user that belongs to your application."""
-            return await self._send('POST', f'/dev/user/{app_id}/password-reset', password_data)
+            return await self._send('POST', f'/dev/user/{app_id}/password_reset', password_data)
 
         async def setting_new_password(self, app_id, password_key, password_data):
             """Changing password of user account."""
-            return await self._send('POST', f'/dev/user/{app_id}/password-update/{password_key}', password_data)
+            return await self._send('POST', f'/dev/user/{app_id}/password_update/{password_key}', password_data)
+
+    class Chart(ClientRoute):
+
+        async def charting_last_data(self, station_id, data_group, time_period, type=None):
+            """Retrieve chart from last data that device sends."""
+            if type:
+                uri = f'/chart/{type}/{station_id}/{data_group}/last/{time_period}'
+            else:
+                uri = f'/chart/{station_id}/{data_group}/last/{time_period}'
+            return await self._send('GET', uri)
+
+        async def charting_period(self, station_id, data_group, from_unix_timestamp, to_unix_timestamp=None, type=None):
+            """Charting data between specified time periods."""
+            if type:
+                uri = f'/chart/{type}/{station_id}/{data_group}/from/{from_unix_timestamp}'
+            else:
+                uri = f'/chart/{station_id}/{data_group}/from/{from_unix_timestamp}'
+            if to_unix_timestamp:
+                uri += f'/to/{to_unix_timestamp}'
+            return await self._send('GET', uri)
+
+        async def charting_last_data_customized(self, station_id, data_group, time_period, custom_data, type=None):
+            """Retrieve customized chart from last data that device sends."""
+            if type:
+                uri = f'/chart/{type}/{station_id}/{data_group}/last/{time_period}'
+            else:
+                uri = f'/chart/{station_id}/{data_group}/last/{time_period}'
+            return await self._send('POST', uri, custom_data)
+
+        async def charting_period_data_customized(self, station_id, data_group, from_unix_timestamp, custom_data,
+                                                  to_unix_timestamp=None, type=None):
+            """Charting customized data between specified time periods."""
+            if type:
+                uri = f'/chart/{type}/{station_id}/{data_group}/from/{from_unix_timestamp}'
+            else:
+                uri = f'/chart/{station_id}/{data_group}/from/{from_unix_timestamp}'
+            if to_unix_timestamp:
+                uri += f'/to/{to_unix_timestamp}'
+            return await self._send('POST', uri, custom_data)
+
+    class Cameras(ClientRoute):
+
+        async def min_max_date_of_data(self, station_id):
+            """Retrieve min and max date of device data availability."""
+            return await self._send('GET', f'/camera/{station_id}/photos/info')
+
+        async def get_last_photos(self, station_id, amount, camera=None):
+            """Retrieve last data that device sends."""
+            uri = f'/camera/{station_id}/photos/last/{amount}'
+            if camera:
+                uri += f'/{camera}'
+            return await self._send('GET', uri)
+
+        async def get_photos_between_period(self, station_id, from_unix_timestamp=None, to_unix_timestamp=None,
+                                            camera=None):
+            """Retrieve photos between specified period that device sends."""
+            uri = f'/camera/{station_id}/photos'
+            if from_unix_timestamp:
+                uri += f'/from/{from_unix_timestamp}'
+            if to_unix_timestamp:
+                uri += f'/to/{to_unix_timestamp}'
+            if camera:
+                uri += f'/{camera}'
+            return await self._send('GET', uri)
 
     def __init__(self, auth):
         self._auth = auth
@@ -323,22 +387,30 @@ class ApiClient:
     @property
     def station(self):
         return ApiClient.Station(self)
-    
+
     @property
     def data(self):
         return ApiClient.Data(self)
-    
+
     @property
     def forecast(self):
         return ApiClient.Forecast(self)
-    
+
     @property
     def disease(self):
         return ApiClient.Disease(self)
-    
+
     @property
     def dev(self):
         return ApiClient.Dev(self)
+
+    @property
+    def chart(self):
+        return ApiClient.Chart(self)
+
+    @property
+    def cameras(self):
+        return ApiClient.Cameras(self)
 
 
 class ClientBuilder:
@@ -374,12 +446,11 @@ class ClientBuilder:
             result = await self._session.request(method, *args, **kwargs)
             response = await result.json(
                 content_type=None)  # So that we get None in case of empty server response instead of an exception
-            
+
             if result.status >= 300:
                 raise ApiResponseException(result.status, response)
             else:
                 return ApiResponse(result.status, response)
-                
 
     class HMAC(_ConnectionBase):
 
@@ -391,13 +462,13 @@ class ClientBuilder:
             dateStamp = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
             requestContents.headers['Date'] = dateStamp
             msg = (requestContents.method + '/' + requestContents.route + dateStamp + self._publicKey).encode(
-                encoding='utf-8')
-            h = HMAC.new(self._privateKey.encode(encoding='utf-8'), msg, SHA256)
+                encoding='utf_8')
+            h = HMAC.new(self._privateKey.encode(encoding='utf_8'), msg, SHA256)
             signature = h.hexdigest()
             requestContents.headers['Authorization'] = 'hmac ' + self._publicKey + ':' + signature
 
     class OAuth2(_ConnectionBase):
-    
+
         credentials = get_credentials()
         client_id = credentials['client_id']
         client_secret = credentials['client_secret']
