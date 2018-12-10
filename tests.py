@@ -219,7 +219,52 @@ class TestStationCalls(TestApiCalls):
         self.assertCall(self.call('station_licenses', 'station-id'), 'GET', '/station-id/licenses')
 
 
-# TODO: DATA
+class TestDataCalls(TestApiCalls):
+
+    @property
+    def some_data(self):
+        return {'foo': 1, 'bar': 'two'}
+
+    def call(self, method, *args, **kwargs):
+        return super().call('data', method, *args, **kwargs)
+
+    def assertCall(self, mock_response, expected_method, expected_route, expected_body=None):
+        super().assertCall(mock_response, expected_method, 'data' + expected_route, expected_body)
+
+    def test_min_max_date_of_data(self):
+        self.assertCall(self.call('min_max_date_of_data', 'station-id'), 'GET', '/station-id')
+
+    def test_get_last_data(self):
+        self.assertCall(self.call('get_last_data', 'station-id', 'raw', 5, 'image'), 'GET',
+                        '/image/station-id/raw/last/5')
+        self.assertCall(self.call('get_last_data', 'station-id', 'raw', 5), 'GET', '/station-id/raw/last/5')
+
+    def test_get_data_between_period(self):
+        self.assertCall(self.call('get_data_between_period', 'station-id', 'raw', 1543524622), 'GET',
+                        '/station-id/raw/from/1543524622')
+        self.assertCall(self.call('get_data_between_period', 'station-id', 'raw', 1543524622, 1543524622), 'GET',
+                        '/station-id/raw/from/1543524622/to/1543524622')
+        self.assertCall(self.call('get_data_between_period', 'station-id', 'raw', 1543524622, None, 'image'), 'GET',
+                        '/image/station-id/raw/from/1543524622')
+
+    def test_get_last_data_customized(self):
+        self.assertCall(self.call('get_last_data_customized', 'station-id', 'raw', 5, self.some_data, 'normal'),
+                        'POST', '/normal/station-id/raw/last/5', self.some_data)
+        self.assertCall(self.call('get_last_data_customized', 'station-id', 'raw', 5, self.some_data), 'POST',
+                        '/station-id/raw/last/5', self.some_data)
+
+    def test_get_data_between_period_customized(self):
+        self.assertCall(
+            self.call('get_data_between_period_customized', 'station-id', 'raw', 1543524622, self.some_data),
+            'POST', '/station-id/raw/from/1543524622', self.some_data)
+        self.assertCall(
+            self.call('get_data_between_period_customized', 'station-id', 'raw', 1543524622, self.some_data,
+                      1543524622),
+            'POST', '/station-id/raw/from/1543524622/to/1543524622', self.some_data)
+        self.assertCall(
+            self.call('get_data_between_period_customized', 'station-id', 'raw', 1543524622, self.some_data, None,
+                      'normal'), 'POST', '/normal/station-id/raw/from/1543524622', self.some_data)
+
 
 class TestForecastCalls(TestApiCalls):
 

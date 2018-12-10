@@ -218,8 +218,8 @@ class ApiClient:
                 uri = f'data/{station_id}/{data_group}/last/{time_period}'
             return await self._send('POST', uri, custom_data)
 
-        async def get_data_between_period_customized(self, station_id, data_group, from_unix_timestamp,
-                                                     to_unix_timestamp, custom_data, format=None):
+        async def get_data_between_period_customized(self, station_id, data_group, from_unix_timestamp, custom_data,
+                                                     to_unix_timestamp=None, format=None):
             """Retrieve data between specified time periods in your liking."""
             if format is not None:
                 uri = f'data/{format}/{station_id}/{data_group}/from/{from_unix_timestamp}'
