@@ -15,7 +15,7 @@ def get_credentials():
 class ApiResponseException(Exception):
     def __init__(self, code, response):
         self.code = code
-        # Better safe than sorry? If the server returns a non_empty response with code >= 300 we should preserve it
+        # Better safe than sorry? If the server returns a non-empty response with code >= 300 we should preserve it
         self.response = response
 
 
@@ -462,8 +462,8 @@ class ClientBuilder:
             dateStamp = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
             requestContents.headers['Date'] = dateStamp
             msg = (requestContents.method + '/' + requestContents.route + dateStamp + self._publicKey).encode(
-                encoding='utf_8')
-            h = HMAC.new(self._privateKey.encode(encoding='utf_8'), msg, SHA256)
+                encoding='utf-8')
+            h = HMAC.new(self._privateKey.encode(encoding='utf-8'), msg, SHA256)
             signature = h.hexdigest()
             requestContents.headers['Authorization'] = 'hmac ' + self._publicKey + ':' + signature
 
