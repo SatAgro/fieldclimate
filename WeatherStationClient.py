@@ -46,12 +46,13 @@ class ApiClient:
             """Reading user information."""
             return await self._send('GET', 'user')
 
-        # Czy wolno sprobowac przetestowac te metode? O ile pamietam mielismy pamietac by nie wywolywac metod ktore moga byc destruktywne?
+        # Are we allowed to try and test this method?
+        # IIRC we had to remember not to call destructive methods?
         async def update_user_information(self, user_data):
             """Updating user information."""
             return await self._send('PUT', 'user', user_data)
 
-        # Jak testowac te metode??
+        # How to test this method??
         async def delete_user_account(self):
             """User himself can remove his own account. """
             return await self._send('DELETE', 'user')
@@ -72,15 +73,18 @@ class ApiClient:
             return await self._send('GET', 'system/status')
 
         async def list_of_system_sensors(self):
-            """Reading the list of all system sensors. Each sensor has unique sensor code and belongs to group with common specifications."""
+            """Reading the list of all system sensors. Each sensor has unique sensor code and belongs to group with
+            common specifications. """
             return await self._send('GET', 'system/sensors')
 
         async def list_of_system_sensor_groups(self):
-            """Reading the list of all system groups. Each sensor belongs to a group which indicates commons specifications."""
+            """Reading the list of all system groups. Each sensor belongs to a group which indicates commons
+            specifications. """
             return await self._send('GET', 'system/groups')
 
         async def list_of_groups_and_sensors(self):
-            """Reading the list of all system groups and sensors belonging to them. Each sensor belongs to a group which indicates commons specifications."""
+            """Reading the list of all system groups and sensors belonging to them. Each sensor belongs to a group
+            which indicates commons specifications. """
             return await self._send('GET', 'system/group/sensors')
 
         async def types_of_devices(self):
@@ -119,7 +123,8 @@ class ApiClient:
             return await self._send('PUT', f'station/{station_id}/sensors', sensor_data)
 
         async def station_nodes(self, station_id):
-            """Station nodes are wireless nodes connected to base station (station_id). Here you can list custom names if any of a node has custom name."""
+            """Station nodes are wireless nodes connected to base station (station_id). Here you can list custom
+            names if any of a node has custom name. """
             return await self._send('GET', f'station/{station_id}/nodes')
 
         async def change_node_name(self, station_id, node_data):
@@ -161,7 +166,8 @@ class ApiClient:
             return await self._send('GET', uri)
 
         async def station_transmission_history_last(self, station_id, amount, filter=None, sort=None):
-            """Read last X amount of station transmission history. Optionally you can also sort them ASC or DESC and filter."""
+            """Read last X amount of station transmission history. Optionally you can also sort them ASC or DESC and
+            filter. """
             uri = f'station/{station_id}/history'
             if filter is not None:
                 uri = uri + f'/{filter}'
@@ -172,7 +178,8 @@ class ApiClient:
 
         async def station_transmission_history_between(self, station_id, from_unix_timestamp, to_unix_timestamp,
                                                        filter=None, sort=None):
-            """Read transmission history for specific time period. Optionally you can also sort them ASC or DESC and filter."""
+            """Read transmission history for specific time period. Optionally you can also sort them ASC or DESC and
+            filter. """
             uri = f'station/{station_id}/history'
             if filter is not None:
                 uri = uri + f'/{filter}'
@@ -309,70 +316,6 @@ class ApiClient:
 
         async def charting_last_data(self, station_id, data_group, time_period, type=None):
             """Retrieve chart from last data that device sends."""
-            if type is not None:
-                uri = f'chart/{type}/{station_id}/{data_group}/last/{time_period}'
-            else:
-                uri = f'chart/{station_id}/{data_group}/last/{time_period}'
-            return await self._send('GET', uri)
-
-        async def charting_period(self, station_id, data_group, from_unix_timestamp, to_unix_timestamp=None, type=None):
-            """Charting data between specified time periods."""
-            if type is not None:
-                uri = f'chart/{type}/{station_id}/{data_group}/from/{from_unix_timestamp}'
-            else:
-                uri = f'chart/{station_id}/{data_group}/from/{from_unix_timestamp}'
-            if to_unix_timestamp is not None:
-                uri += f'/to/{to_unix_timestamp}'
-            return await self._send('GET', uri)
-
-        async def charting_last_data_customized(self, station_id, data_group, time_period, custom_data, type=None):
-            """Retrieve customized chart from last data that device sends."""
-            if type is not None:
-                uri = f'chart/{type}/{station_id}/{data_group}/last/{time_period}'
-            else:
-                uri = f'chart/{station_id}/{data_group}/last/{time_period}'
-            return await self._send('POST', uri, custom_data)
-
-        async def charting_period_data_customized(self, station_id, data_group, from_unix_timestamp, custom_data,
-                                                  to_unix_timestamp=None, type=None):
-            """Charting customized data between specified time periods."""
-            if type is not None:
-                uri = f'chart/{type}/{station_id}/{data_group}/from/{from_unix_timestamp}'
-            else:
-                uri = f'chart/{station_id}/{data_group}/from/{from_unix_timestamp}'
-            if to_unix_timestamp is not None:
-                uri += f'/to/{to_unix_timestamp}'
-            return await self._send('POST', uri, custom_data)
-
-    class Cameras(ClientRoute):
-
-        async def min_max_date_of_data(self, station_id):
-            """Retrieve min and max date of device data availability."""
-            return await self._send('GET', f'camera/{station_id}/photos/info')
-
-        async def get_last_photos(self, station_id, amount, camera=None):
-            """Retrieve last data that device sends."""
-            uri = f'camera/{station_id}/photos/last/{amount}'
-            if camera is not None:
-                uri += f'/{camera}'
-            return await self._send('GET', uri)
-
-        async def get_photos_between_period(self, station_id, from_unix_timestamp=None, to_unix_timestamp=None,
-                                            camera=None):
-            """Retrieve photos between specified period that device sends."""
-            uri = f'camera/{station_id}/photos'
-            if from_unix_timestamp is not None:
-                uri += f'/from/{from_unix_timestamp}'
-            if to_unix_timestamp is not None:
-                uri += f'/to/{to_unix_timestamp}'
-            if camera is not None:
-                uri += f'/{camera}'
-            return await self._send('GET', uri)
-
-    class Chart(ClientRoute):
-
-        async def charting_last_data(self, station_id, data_group, time_period, type=None):
-            """Retrieve chart from last data that device sends."""
             if type:
                 uri = f'/chart/{type}/{station_id}/{data_group}/last/{time_period}'
             else:
@@ -495,16 +438,16 @@ class ClientBuilder:
             await self._session.close()
 
         @abstractmethod
-        def _modify_request(self, requestContents):
+        def _modify_request(self, request_contents):
             pass
 
         async def _make_request(self, method, route, body=None):
-            requestContents = ClientBuilder._RequestContents(method, route, body, {'Accept': 'application/json'})
-            self._modify_request(requestContents)
+            request_contents = ClientBuilder._RequestContents(method, route, body, {'Accept': 'application/json'})
+            self._modify_request(request_contents)
 
-            args = [ApiClient.apiURI + '/' + requestContents.route]
-            kwargs = {'headers': requestContents.headers}
-            if requestContents.body is not None:
+            args = [ApiClient.apiURI + '/' + request_contents.route]
+            kwargs = {'headers': request_contents.headers}
+            if request_contents.body is not None:
                 kwargs['json'] = body
 
             result = await self._session.request(method, *args, **kwargs)
@@ -518,18 +461,18 @@ class ClientBuilder:
 
     class HMAC(_ConnectionBase):
 
-        def __init__(self, publicKey, privateKey):
-            self._publicKey = publicKey
-            self._privateKey = privateKey
+        def __init__(self, public_key, private_key):
+            self._publicKey = public_key
+            self._privateKey = private_key
 
-        def _modify_request(self, requestContents):
-            dateStamp = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
-            requestContents.headers['Date'] = dateStamp
-            msg = (requestContents.method + '/' + requestContents.route + dateStamp + self._publicKey).encode(
+        def _modify_request(self, request_contents):
+            date_stamp = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
+            request_contents.headers['Date'] = date_stamp
+            msg = f'{request_contents.method}/{request_contents.route}{date_stamp}{self._publicKey}'.encode(
                 encoding='utf-8')
             h = HMAC.new(self._privateKey.encode(encoding='utf-8'), msg, SHA256)
             signature = h.hexdigest()
-            requestContents.headers['Authorization'] = 'hmac ' + self._publicKey + ':' + signature
+            request_contents.headers['Authorization'] = f'hmac {self._publicKey}:{signature}'
 
     class OAuth2(_ConnectionBase):
 
@@ -565,8 +508,8 @@ class ClientBuilder:
             self._access_token = result['access_token']
             self._refresh_token = result['refresh_token']
 
-        def _modify_request(self, requestContents):
-            requestContents.headers['Authorization'] = f'Authorization: Bearer {self._access_token}'
+        def _modify_request(self, request_contents):
+            request_contents.headers['Authorization'] = f'Authorization: Bearer {self._access_token}'
 
         async def _make_request(self, method, route, body=None):
             if self._access_token is None:
