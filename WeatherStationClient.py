@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
-from collections import MutableSequence
 from datetime import datetime
-from typing import Iterable
 
 import aiohttp
 import pkg_resources
@@ -20,35 +18,30 @@ class ApiResponseException(Exception):
         # Better safe than sorry? If the server returns a non-empty response with code >= 300 we should preserve it
         self.response = response
 
-
-class UnauthorizedException(ApiResponseException):
-    def __init__(self, api_response_exception):
-        super().__init__(api_response_exception.code, api_response_exception.response)
-
-
-class LoginRequiredException(UnauthorizedException):
-    def __init__(self, api_response_exception):
-        super().__init__(api_response_exception)
-
-
-class NoPermissionsException(ApiResponseException):
-    def __init__(self, api_response_exception):
-        super().__init__(api_response_exception.code, api_response_exception.response)
+    @classmethod
+    def _get_specific(cls, code, response):
+        specific_type = ApiResponseExceptionBadRequest if code == 400\
+                   else ApiResponseExceptionUnauthorized if code == 401\
+                   else ApiResponseExceptionForbidden if code == 403\
+                   else ApiResponseExceptionConflict if code == 409\
+                   else cls
+        return specific_type(code, response)
 
 
-class NoRightsException(NoPermissionsException):
-    def __init__(self, api_response_exception):
-        super().__init__(api_response_exception)
+class ApiResponseExceptionUnauthorized:
+    pass
 
 
-class ValidationErrorsException(ApiResponseException):
-    def __init__(self, api_response_exception):
-        super().__init__(api_response_exception.code, api_response_exception.response)
+class ApiResponseExceptionBadRequest:
+    pass
 
 
-class UsernameAlreadyExistsException(ApiResponseException):
-    def __init__(self, api_response_exception):
-        super().__init__(api_response_exception.code, api_response_exception.response)
+class ApiResponseExceptionConflict(ApiResponseException):
+    pass
+
+
+class ApiResponseExceptionForbidden(ApiResponseException):
+    pass
 
 
 class ApiAuthorizationException(ApiResponseException):
@@ -60,521 +53,481 @@ class ApiResponse:
         self.code = code
         self.response = response
 
-
-class ResponseSuccess(ApiResponse):
-    def __init__(self, api_response):
-        super().__init__(api_response.code, api_response.response)
-
-
-class ResponseNoChangesHaveBeenMade(ApiResponse):
-    def __init__(self, api_response):
-        super().__init__(api_response.code, api_response.response)
+    @classmethod
+    def _get_specific(cls, code, response):
+        specific_type = ResponseOK if code == 200\
+                   else ResponseNoContent if code == 204\
+                   else cls
+        return specific_type(code, response)
 
 
-class ResponseNoDevices(ApiResponse):
-    def __init__(self, api_response):
-        super().__init__(api_response.code, api_response.response)
+class ResponseOK(ApiResponse):
+    pass
 
 
-class ResponseNoLicenses(ApiResponse):
-    def __init__(self, api_response):
-        super().__init__(api_response.code, api_response.response)
+class ResponseNoContent(ApiResponse):
+    pass
 
 
-class ResponseAlreadyRemoved(ApiResponse):
-    def __init__(self, api_response):
-        super().__init__(api_response.code, api_response.response)
+class ListResponse(list):
+    @classmethod
+    def _from_response(cls, response):
+        class _ListResponse(cls, type(response)):
+            def __init__(self, *args, **kwargs):
+                cls.__init__(self, *args, **kwargs)
+                type(response).__init__(self, response.code, response.response)
+        return _ListResponse
 
 
-class User:
-    """user information."""
-
-    def __init__(self,
-                 username=None, password=None, created_by=None, create_time=None, last_access=None,
-                 station_id=None, station_rights=None, custom_name=None, sync_disabled=None, terms_accepted=None,
-                 info=None, company=None, settings=None, address=None):
-
-        self.info = info
-        self.company = company
-        self.settings = settings
-        self.address = address
-
-        self.username = username
-        """Chars, Numbers, space, _, - but no other special chars.
-        Pattern: (*UTF8)^[[:alnum:]]+(?:[-_ ]?[[:alnum:]]+)*$"""
-        self.password = password
-        """Is not returned by get_user."""
-        self.created_by = created_by
-        """Is not sent to update_user."""
-        self.create_time = create_time
-        """Is not sent to update_user."""
-        self.last_access = last_access
-        """Is not sent to update_user."""
-
-        # These fields are not documented in the official API, but seem to be returned nonetheless.
-        self.station_id = station_id
-        self.station_rights = station_rights
-        self.custom_name = custom_name
-        self.sync_disabled = sync_disabled
-        self.terms_accepted = terms_accepted
+class Model:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
 
     @classmethod
-    def from_response(cls, api_response, response_type):
+    def _from_response(cls, response):
+        class _Model(cls, type(response)):
+            def __init__(self, **kwargs):
+                cls.__init__(self, **kwargs)
+                type(response).__init__(self, response.code, response.response)
 
-        class _User(cls, response_type):
-            def __init__(self, response):
-                response_type.__init__(self, api_response)
-                cls.__init__(self,
-                             username=response.get('username'), created_by=response.get('created_by'),
-                             create_time=response.get('create_time'), last_access=response.get('last_access'),
-                             info=User.Info.from_response(response), company=User.Company.from_response(response),
-                             settings=User.Settings.from_response(response),
-                             address=User.Address.from_response(response),
-                             # These fields are not documented in the official API, but seem to be returned nonetheless.
-                             # BTW what is station_id and station_rights? Which station?
-                             # IIUC there may be many stations?
-                             station_id=response.get('station_id'), station_rights=response.get('station_rights'),
-                             custom_name=response.get('custom_name'), sync_disabled=response.get('sync_disabled'),
-                             terms_accepted=response.get('terms_accepted'))
+        return _Model
 
-        return _User(api_response.response)
+    @staticmethod
+    def _to_factory(raw, factory_info):
+        if isinstance(raw, dict):
+            arg = Model._dict(raw)
+            try:
+                factory = factory_info['factory']
+            except (AttributeError, KeyError, TypeError):
+                factory = factory_info
+            try:
+                factory_args = factory_info['args']
+            except (AttributeError, KeyError, TypeError):
+                factory_args = []
+            try:
+                factory_kwargs = factory_info['kwargs']
+            except (AttributeError, KeyError, TypeError):
+                factory_kwargs = {}
+            ret = factory(arg, *factory_args, **factory_kwargs)
+        else:
+            ret = raw
+        return ret
 
-    def to_update_request(self):
-        ret = {
-            'username': self.username,
-            'password': self.password
-        }
-        info = self.info.to_update_request() if self.info is not None else {}
-        company = self.company.to_update_request() if self.company is not None else {}
-        address = self.address.to_update_request() if self.address is not None else {}
-        settings = self.settings.to_update_request() if self.settings is not None else {}
-        ret = {**ret, **info, **company, **address, **settings}
-        return {k: v for k, v in ret.items() if v is not None}
+    @staticmethod
+    def _from_list(l, factory_info):
+        return [Model._to_factory(Model._dict(elt), factory_info) for elt in l] if isinstance(l, list) else l
 
-    class Info:
-        def __init__(self, name=None, lastname=None, title=None, email=None, phone=None, cellphone=None, fax=None):
-            # I allow myself to not document fields that the official API does not document either,
-            # because they are "self-explanatory".
-            self.name = name
-            self.lastname = lastname
-            self.title = title
-            self.email = email
-            self.phone = phone
-            self.cellphone = cellphone
-            self.fax = fax
+    class _dict(dict):
+        def ignore(self, to_ignore):
+            return Model._dict({k: self[k] for k in self if k not in to_ignore})
 
-        @classmethod
-        def from_response(cls, response):
-            response = response.get('info')
-            return cls(
-                name=response.get('name'), lastname=response.get('lastname'), title=response.get('title'),
-                email=response.get('email'), phone=response.get('phone'), cellphone=response.get('cellphone'),
-                fax=response.get('fax')
-            ) if response is not None else cls()
+        def to_datetimes(self, *args):
+            # YYYY-MM-DD HH:MM:SS
+            ret = Model._dict()
+            for k in self:
+                if k in args:
+                    try:
+                        ret[k] = datetime.strptime(self[k], "%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        ret[k] = self[k]
+                else:
+                    ret[k] = self[k]
+            return ret
 
-        def to_update_request(self):
-            ret = {
-                'name': self.name, 'lastname': self.lastname, 'title': self.title,
-                'email': self.email, 'phone': self.phone, 'cellphone': self.cellphone,
-                'fax': self.fax
-            }
-            return {f'info.{k}': v for k, v in ret.items() if v is not None}
+        def to_submodels(self, **kwargs):
+            ret = Model._dict()
+            for k in self:
+                if k in kwargs:
+                    ret[k] = Model._to_factory(self[k], kwargs[k])
+                else:
+                    ret[k] = self[k]
+            return ret
 
-    class Company:
-        """Data updated as whole object will overwrite whole set in database"""
-        def __init__(self, name=None, profession=None, department=None, customer_id=None, vat_id=None):
-            self.name = name
-            self.profession = profession
-            self.department = department
-            self.customer_id = customer_id
-            self.vat_id = vat_id
+        def to_submodel_lists(self, **kwargs):
+            ret = Model._dict()
+            for k in self:
+                if k in kwargs:
+                    ret[k] = Model._from_list(self[k], kwargs[k])
+                else:
+                    ret[k] = self[k]
+            return ret
 
-        @classmethod
-        def from_response(cls, response):
-            response = response.get('company')
-            # customer_id and vat_id are not documented to be returned by official API
-            # nevertheless they seem to be returned in practice
-            return cls(
-                name=response.get('name'), profession=response.get('profession'), department=response.get('department'),
-                customer_id=response.get('customer_id'), vat_id=response.get('vat_id')
-            ) if response is not None else cls()
+    def _to_dict(self, *fields):
+        ret = {k: self.__dict__[k] for k in self.__dict__ if k in fields}
+        return ret
 
-        def to_update_request(self):
-            ret = {
-                'name': self.name, 'profession': self.profession, 'department': self.department,
-                'customer_id': self.customer_id, 'vat_id': self.vat_id
-            }
-            return {'company': {k: v for k, v in ret.items() if v is not None}}
-
-    class Address:
-        def __init__(self, street=None, city=None, district=None, zip=None, country=None):
-            self.street = street
-            self.city = city
-            self.district = district
-            self.zip = zip
-            self.country = country
-
-        @classmethod
-        def from_response(cls, response):
-            response = response.get('address')
-            return cls(
-                street=response.get('street'), city=response.get('city'), district=response.get('district'),
-                zip=response.get('zip'), country=response.get('country')
-            ) if response is not None else cls()
-
-        def to_update_request(self):
-            ret = {
-                'street': self.street, 'city': self.city, 'district': self.district,
-                'zip': self.zip, 'country': self.country
-            }
-            return {f'address.{k}': v for k, v in ret.items() if v is not None}
-
-    class Settings:
-        def __init__(self, language, newsletter, unit_system):
-            self.language = language
-            """Language has to be in ISO 639-1 format. Pattern: ^[a-z]{2,2}$"""
-            self.newsletter = newsletter
-            """Wanna receive newsletter"""
-            self.unit_system = unit_system
-            """Must be one of metric, imperial"""
-
-        @classmethod
-        def from_response(cls, response):
-            outer_response = response
-            response = response.get('settings')
-            kwargs = {'language': response.get('language'), 'unit_system': response.get('unit_system')} \
-                if response is not None else {}
-            if response is not None and 'newsletter' in response:
-                kwargs['newsletter'] = response['newsletter']  # what should happen according to official docs
+    def _models_to_dict(self, **fields):
+        ret = {}
+        for k in [k for k in self.__dict__ if k in fields]:
+            try:
+                factory_name = fields[k]['factory']
+            except (AttributeError, KeyError, TypeError):
+                factory_name = fields[k]
+            try:
+                flatten = fields[k]['flatten']
+            except (AttributeError, KeyError, TypeError):
+                flatten = False
+            try:
+                factory = getattr(self.__dict__[k], factory_name)
+            except AttributeError:
+                pass
+            if 'factory' in locals():
+                dicted_field = factory()
+                if flatten:
+                    ret.update({f'{k}.{kk}': dicted_field[kk] for kk in dicted_field})
+                else:
+                    ret[k] = factory()
             else:
-                kwargs['newsletter'] = outer_response.get('newsletter')  # what actually seems to be returned instead
-            return cls(**kwargs)
-
-        def to_update_request(self):
-            ret = {
-                'language': self.language, 'unit_system': self.unit_system,
-                # Judging from what is returned by get_user I strongly suppose newsletter works differently from what
-                # official API says in update_user as well; but how to test this?
-                # As such, this code, while conforming to the official API, will likely not work for newsletter
-                'newsletter': self.newsletter
-            }
-            return {f'settings.{k}': v for k, v in ret.items() if v is not None}
+                ret[k] = self.__dict__[k]
+        return ret
 
 
-# I'm uncertain on this class. My reasoning is that this class enables me to make the DeviceList class without
-# violating Liskov, and I need the DeviceList class so that I can write DeviceList.from_response(api_response).
-# Still, I admit this seems ugly to me; I'm almost reimplementing C++/Java/C# strongly typed templated lists
-def _get_response_list(type):
+class User(Model):
+    """
+    Model that holds information of a single user account. Returned by user.get(). Can be passed to user.update().
 
-    class _ResponseList(MutableSequence):
-        def __init__(self, iterable=[]):
-            if not all(isinstance(elt, type) for elt in iterable):
-                raise ValueError()
-            self._core = iterable[:]
+    If returned by user.get(), fields depend on what was received from the server.
+    If passed to user.update(), only fields mentioned in the documentation will be sent, if present.
 
-        def __getitem__(self, i):
-            return self._core.__getitem__(i)
-
-        def __setitem__(self, key, value):
-            if not isinstance(value, type) and \
-                    not (isinstance(value, Iterable) and all(isinstance(elt, type) for elt in value)):
-                raise ValueError()
-            return self._core.__setitem__(key, value)
-
-        def __delitem__(self, key):
-            return self._core.__delitem__(key)
-
-        def __len__(self):
-            return self._core.__len__()
-
-        def insert(self, index, object):
-            if not isinstance(object, type):
-                raise ValueError()
-            return self.insert(index, object)
-
-    return _ResponseList
-
-
-class _Device:
-
-    def __init__(self,
-                 rights=None, name=None, info=None, dates=None, position=None, config=None, metadata=None,
-                 meta=None, networking=None, warnings=None, flags=None, licenses=None):
-        self.rights = rights
-
-        self.name = name
-        self.info = info
-        self.dates = dates
-        self.position = position
-        self.config = config
-        self.metadata = metadata
-        self.networking = networking
-        self.warnings = warnings
-        self.flags = flags
-        self.licenses = licenses
-
-        # This field is undocumented in the official API, but is sometimes returned nonetheless
-        self.meta = meta
+    Fields that directly correspond to the official API documentation are:
+    * username
+    * password - only for user.update()
+    * info - if the server returns a dictionary here, this field will be a User.Info model
+    * company - if the server returns a dictionary here, this field will be a User.Company model
+    * address - if the server returns a dictionary here, this field will be a User.Info model
+    * settings - if the server returns a dictionary here, this field will be a User.Settings model
+    * created_by - only for user.get()
+    * create_time - only for user.get().
+                    If the server returns a string in the format YYYY-MM-DD HH:MM:SS, this will be a datetime object
+    * last_access - only for user.get().
+                    If the server returns a string in the format YYYY-MM-DD HH:MM:SS, this will be a datetime object
+    In addition, the following undocumented fields are known to be sometimes returned by user.get(). These and other
+    unexpected fields will be present exactly as returned by the server:
+    station_id, station_rights, custom_name, sync_disabled, terms_accepted
+    """
 
     @classmethod
-    def from_response(cls, response):
-        return cls(
-            rights=response.get('rights'),
-            name=DeviceList.Device.Name.from_response(response),
-            info=DeviceList.Device.Info.from_response(response),
-            dates=DeviceList.Device.Dates.from_response(response),
-            position=DeviceList.Device.Position.from_response(response),
-            config=DeviceList.Device.Config.from_response(response),
-            metadata=DeviceList.Device.Metadata.from_response(response),
-            networking=DeviceList.Device.Networking.from_response(response),
-            meta=response.get('meta'), warnings=DeviceList.Device.Warnings.from_response(response),
-            flags=DeviceList.Device.Flags.from_response(response),
-            licenses=DeviceList.Device.Licenses.from_response(response)
-        ) if response is not None else None
+    def _from_get(cls, dict):
 
-    class Name:
-        def __init__(self, original=None, custom=None):
-            self.original = original
-            """Station ID and can not be changed"""
-            self.custom = custom
+        return cls(**dict.
+                   ignore('newsletter').  # Handled in User.Settings
+                   to_datetimes('create_time', 'last_access').
+                   to_submodels(info=User.Info._from_get, company=User.Company._from_get,
+                                address=User.Address._from_get,
+                                settings={'factory': User.Settings._from_get,
+                                          'args': [dict]}))
 
-        @classmethod
-        def from_response(cls, response):
-            response = response.get('name')
-            return cls(
-                original=response.get('original'), custom=response.get('custom')
-            ) if response is not None else cls()
+    def to_update(self):
+        """
+        If fine-control over what is sent to user.update() is desireable, this method may be called on this model
+        and the dictionary it returns may be manually modified and then passed to user.update().
+        """
+        return {
+            **self._to_dict('username', 'password'),
+            **self._models_to_dict(
+                info={'factory': '_to_update', 'flatten': True},
+                company='_to_update',
+                address={'factory': '_to_update', 'flatten': True},
+                settings={'factory': '_to_update', 'flatten': True}
+            )
+        }
 
-    class Info:
-        def __init__(self,
-                     device_id=None, device_name=None, uid=None, firmware=None, hardware=None, description=None,
-                     max_time=None, programmed=None, apn_table=None):
-            self.device_id = device_id
-            self.device_name = device_name
-            self.uid = uid
-            self.firmware = firmware
-            self.hardware = hardware
-            self.description = description
-            self.max_time = max_time
-            # The fields below are not mentioned in the official API but they still seem to be sometimes returned
-            self.programmed = programmed
-            self.apn_table = apn_table
+    class Info(Model):
+        """
+        Fields that directly correspond to the official API documentation (both for user.get() and user.update()) are:
+        * name
+        * lastname
+        * title
+        * email
+        * phone
+        * cellphone
+        * fax
+        """
 
         @classmethod
-        def from_response(cls, response):
-            response = response.get('info')
-            return cls(
-                device_id=response.get('device_ic'), device_name=response.get('device_name'),
-                uid=response.get('uid'), firmware=response.get('firmware'), hardware=response.get('hardware'),
-                description=response.get('description'), max_time=response.get('max_time'),
-                programmed=response.get('programmed'), apn_table=response.get('apn_table')
-            ) if response is not None else cls()
+        def _from_get(cls, dict):
+            return cls(**dict)
 
-    class Dates:
-        def __init__(self, min_date=None, max_date=None, created_at=None, last_communication=None):
-            self.min_date = min_date
-            self.max_date = max_date
-            self.created_at = created_at
-            self.last_communication = last_communication
+        def _to_update(self):
+            return self._to_dict('name', 'lastname', 'title', 'email', 'phone', 'cellphone', 'fax')
 
-        @classmethod
-        def from_response(cls, response):
-            response = response.get('dates')
-            return cls(
-                min_date=response.get('min_date'), max_date=response.get('max_date'),
-                created_at=response.get('created_at'), last_communication=response.get('last_communication')
-            ) if response is not None else cls()
-
-    class Position:
-        def __init__(self, geo=None, altitude=None):
-            self.geo = geo
-            self.altitude = altitude
+    class Company(Model):
+        """
+        Fields that directly correspond to the official API documentation (both for user.get() and user.update()) are:
+        * name
+        * profession
+        * department
+        In addition, the following fields are only documented for user.update(), but are known to be sometimes
+        also returned by user.get():
+        * customer_id
+        * vat_id
+        These and other unexpected fields will be present exactly as returned by the server.
+        """
 
         @classmethod
-        def from_response(cls, response):
-            response = response.get('position')
-            return cls(
-                altitude=response.get('altitude'),
-                geo=DeviceList.Device.Position.Geo.from_response(response)
-            ) if response is not None else cls()
+        def _from_get(cls, dict):
+            return cls(**dict)
 
-        class Geo:
-            def __init__(self, coordinates=None):
-                self.coordinates = coordinates
+        def _to_update(self):
+            return self._to_dict('name', 'profession', 'department', 'customer_id', 'vat_id')
 
-            @classmethod
-            def from_response(cls, response):
-                response = response.get('geo')
-                return cls(
-                    coordinates=response.get('coordinates')
-                ) if response is not None else cls()
-
-    class Config:
-        def __init__(self,
-                     timezone_offset=None, dst=None, precision_reduction=None, scheduler=None, schedulerOld=None,
-                     fixed_transfer_interval=None, rain_monitor=None, water_level_monitor=None, data_interval=None,
-                     activity_mode=None, emergency_sms_number=None, measuring_interval=None, logging_interval=None,
-                     x_min_transfer_interval=None, scheduler_cv=None, cam1=None, cam2=None):
-            self.timezone_offset = timezone_offset
-            self.dst = dst
-            self.precision_reduction = precision_reduction
-            self.scheduler = scheduler
-            self.schedulerOld = schedulerOld
-            self.fixed_transfer_interval = fixed_transfer_interval
-            self.rain_monitor = rain_monitor
-            self.water_level_monitor = water_level_monitor
-            self.data_interval = data_interval
-            self.activity_mode = activity_mode
-            self.emergency_sms_number = emergency_sms_number
-            self.measuring_interval = measuring_interval
-            self.logging_interval = logging_interval
-            self.x_min_transfer_interval = x_min_transfer_interval
-            # Fields below are undocumented in the API but are sometimes nevertheless returned
-            self.scheduler_cv = scheduler_cv
-            self.cam1 = cam1
-            self.cam2 = cam2
+    class Address(Model):
+        """
+        Fields that directly correspond to the official API documentation (both for user.get() and user.update()) are:
+        * street
+        * city
+        * district
+        * zip
+        * country
+        """
 
         @classmethod
-        def from_response(cls, response):
-            response = response.get('config')
-            return cls(
-                timezone_offset=response.get('timezone_offset'), dst=response.get('dst'),
-                precision_reduction=response.get('precision_reduction'), scheduler=response.get('scheduler'),
-                schedulerOld=response.get('schedulerOld'),
-                fixed_transfer_interval=response.get('fixed_transfer_interval'),
-                rain_monitor=response.get('rain_monitor'), water_level_monitor=response.get('water_level_monitor'),
-                data_interval=response.get('data_interval'), activity_mode=response.get('activity_mode'),
-                emergency_sms_number=response.get('emergency_sms_number'),
-                measuring_interval=response.get('measuring_interval'),
-                logging_interval=response.get('logging_interval'),
-                x_min_transfer_interval=response.get('x_min_transfer_interval'),
-                scheduler_cv=response.get('scheduler_cv'), cam1=response.get('cam1'), cam2=response.get('cam2')
-            ) if response is not None else cls()
+        def _from_get(cls, dict):
+            return cls(**dict)
 
-    class Metadata:
-        def __init__(self, last_battery=None):
-            self.last_battery = last_battery
+        def _to_update(self):
+            return self._to_dict('street', 'city', 'district', 'zip', 'country')
 
-        @classmethod
-        def from_response(cls, response):
-            response = response.get('metadata')
-            return cls(
-                last_battery=response.get('last_battery')
-            ) if response is not None else cls()
-
-    class Networking:
-        def __init__(self,
-                     mnc=None, mcc=None, type=None, mcc_sim=None, mnc_sim=None, mcc_home=None, mnc_home=None,
-                     apn=None, country=None, username=None, password=None, simid=None, imei=None, provider=None,
-                     modem=None, roaming=None):
-            self.mnc = mnc
-            self.mcc = mcc
-            self.type = type
-            self.apn = apn
-            self.country = country
-            self.username = username
-            self.password = password
-            self.simid = simid
-            self.imei = imei
-            self.provider = provider
-
-            # Fields below are undocumented in official API but are sometimes returned nevertheless
-            self.mcc_sim = mcc_sim
-            self.mnc_sim = mnc_sim
-            self.mcc_home = mcc_home
-            self.mnc_home = mnc_home
-            self.modem = modem
-            self.roaming = roaming
+    class Settings(Model):
+        """
+        Fields that directly correspond to the official API documentation (both for user.get() and user.update()) are:
+        * language
+        * unit_system
+        * newsletter
+        Note: According to documentation, newsletter should be a Boolean value sent in the settings subdictionary.
+        However, it seems to be a dictionary, sent in the outermost object instead.
+        This case has been taken care of in this model.
+        However, due to these discrepancies between the official API and what is actually returned, it is possible that
+        the official API should not be conformed to either while sending the update request with regard to this field.
+        Nonetheless, the current implementation of ApiClient.user.update() conforms to the official API.
+        """
 
         @classmethod
-        def from_response(cls, response):
-            response = response.get('networking')
-            # username is documented, usernme seems to be sometimes returned instead
-            return cls(
-                mnc=response.get('mnc'), mcc=response.get('mcc'), type=response.get('type'),
-                mcc_sim=response.get('mcc_sim'), mnc_sim=response.get('mnc_sim'),
-                mcc_home=response.get('mcc_home'), mnc_home=response.get('mnc_home'),
-                apn=response.get('apn'), country=response.get('country'),
-                username=response.get('username') if response.get('username') is not None
-                else response.get('usernme'),
-                password=response.get('password'), simid=response.get('simid'), imei=response.get('imei'),
-                provider=response.get('provider'), modem=response.get('modem'), roaming=response.get('roaming')
-            ) if response is not None else cls()
+        def _from_get(cls, dict, outer):
+            if 'newsletter' not in dict and 'newsletter' in outer:
+                dict['newsletter'] = outer['newsletter']
+            return cls(**dict)
 
-    class Warnings:
-        def __init__(self, sensors=None, sms_numbers=None):
-            self.sensors = sensors
-            """Warning per sensor code and channel"""
-            self.sms_numbers = sms_numbers
-
-        @classmethod
-        def from_response(cls, response):
-            response = response.get('warnings')
-            return cls(
-                sensors=response.get('sensors'),
-                sms_numbers=[
-                    DeviceList.Device.Warnings.SMSNumber.from_response(sms_number_response)
-                    for sms_number_response in response.get('sms_numbers')
-                ] if response.get('sms_numbers') is not None else None
-            ) if response is not None else cls()
-
-        class SMSNumber:
-            def __init__(self, num=None, name=None, active=None):
-                self.num = num
-                self.name = name
-                self.active = active
-
-            @classmethod
-            def from_response(cls, response):
-                return cls(
-                    num=response.get('num'), name=response.get('name'), active=response.get('active')
-                )
-
-    class Flags:
-        def __init__(self, imeteopro=None):
-            self.imeteopro = imeteopro
-
-        @classmethod
-        def from_response(cls, response):
-            response = response.get('flags')
-            return cls(
-                imeteopro=response.get('imeteopro')
-            ) if response is not None else None
-
-    class Licenses:
-        def __init__(self, models=None, Forecast=None):
-            self.models = models
-            """Disease model licenses"""
-            self.Forecast = Forecast
-            """Weather forecast license"""
-
-        @classmethod
-        def from_response(cls, response):
-            response = response.get('licenses')
-            return cls(
-                models=response.get('models'), Forecast=response.get('Forecast')
-            ) if isinstance(response, dict) else response  # bool can be returned instead of dict
+        def _to_update(self):
+            return self._to_dict('language', 'unit_system', 'newsletter')
 
 
-class DeviceList(_get_response_list(_Device)):
+# TODO: Can rights be assumed to be a tuple of bools? read=bool write=bool
+# TODO Try to determie the above while reading the documentation to the end
+class Device(Model):
+    """
+    Fields that directly correspond to the official API documentation are:
+    * name - if the server returns a dictionary here, this field will be a Device.Name model
+    * rights
+    * info - if the server returns a dictionary here, this field will be a Device.Info model
+    * dates - if the server returns a dictionary here, this field will be a Device.Dates model
+    * position - if the server returns a dictionary here, this field will be a Device.Position model
+    * config - if the server returns a dictionary here, this field will be a Device.Config model
+    * metadata - if the server returns a dictionary here, this field will be a Device.Metadata model
+    * networking - if the server returns a dictionary here, this field will be a Device.Networking model
+    * warnings - if the server returns a dictionary here, this field will be a Device.Warnings model
+    * flags
+    * licenses - if the server returns a dictionary here, this field will be a Device.Licenses model.
+                 However, a Boolean value of False is known to be sometimes returned instead
 
-    Device = _Device
+    In addition, the following undocumented field is known to be sometimes returned by user.get_devices().
+    This and other unexpected fields will be present exactly as returned by the server:
+    * meta
+    """
 
-    def __init__(self, l=[]):
-        super().__init__(l)
-
+    # No model for Flags because I think it semantically makes most sense as a dictionary of bools
     @classmethod
-    def from_response(cls, api_response, response_type):
+    def _from_get_devices(cls, dict):
+        return cls(**dict.to_submodels(name=Device.Name._from_get_devices,
+                                       info=Device.Info._from_get_devices,
+                                       dates=Device.Dates._from_get_devices,
+                                       position=Device.Position._from_get_devices,
+                                       config=Device.Config._from_get_devices,
+                                       metadata=Device.Metadata._from_get_devices,
+                                       networking=Device.Networking._from_get_devices,
+                                       warnings=Device.Warnings._from_get_devices,
+                                       licenses=Device.Licenses._from_get_devices))
 
-        class _DeviceList(cls, response_type):
-            def __init__(self, response):
-                response_type.__init__(self, api_response)
-                cls.__init__(self, [DeviceList.Device.from_response(device_response) for device_response in response])
+    class Name(Model):
+        """
+        Fields that directly correspond to the official API documentation are:
+        * original
+        * custom
+        """
 
-        return _DeviceList(api_response.response if api_response.response else [])
+        @classmethod
+        def _from_get_devices(cls, dict):
+            return cls(**dict)
+
+    # TODO: Should max_time be datetime?
+    class Info(Model):
+        """
+        Fields that directly correspond to the official API documentation are:
+        * device_id
+        * device_name
+        * uid
+        * firmware
+        * hardware
+        * description
+        * max_time
+
+        In addition, the following undocumented fields are known to be sometimes returned by user.get_licenses().
+        These and other unexpected fields will be present exactly as returned by the server:
+        * programmed
+        * apn_table
+        """
+
+        @classmethod
+        def _from_get_devices(cls, dict):
+            return cls(**dict)
+
+    class Dates(Model):
+        """
+        Fields that directly correspond to the official API documentation are:
+        * min_date
+        * max_date
+        * created_at
+        * last_communication
+        For each of these fields, if the server returns a string in the format YYYY-MM-DD HH:MM:SS,
+        the field will be a datetime object
+        """
+
+        @classmethod
+        def _from_get_devices(cls, dict):
+            return cls(**dict.to_datetimes('min_date', 'max_date', 'created_at', 'last_communication'))
+
+    class Position(Model):
+        """
+        Fields that directly correspond to the official API documentation are:
+        * geo - if the server returns a dictionary here, this field will be a Device.Position.Geo model
+        * altitude
+        """
+
+        @classmethod
+        def _from_get_devices(cls, dict):
+            return cls(**dict.to_submodels(geo=Device.Position.Geo._from_get_devices))
+
+        class Geo(Model):
+            """
+            Field that directly corresponds to the official API documentation is:
+            * coordinates
+            """
+
+            @classmethod
+            def _from_get_devices(cls, dict):
+                return cls(**dict)
+
+    class Config(Model):
+        """
+        Fields that directly correspond to the official API documentation are:
+        * timezone_offset
+        * dst
+        * precision_reduction
+        * scheduler
+        * schedulerOld
+        * fixed_transfer_interval
+        * rain_monitor
+        * water_level_monitor
+        * data_interval
+        * activity_mode
+        * emergency_sms_number
+        * measuring_interval
+        * logging_interval
+        * x_min_transfer_interval
+
+        In addition, the following undocumented fields are known to be sometimes returned by user.get_licenses().
+        These and other unexpected fields will be present exactly as returned by the server:
+        * scheduler_cv
+        * cam1
+        * cam2
+        """
+
+        @classmethod
+        def _from_get_devices(cls, dict):
+            return cls(**dict)
+
+    class Metadata(Model):
+        """
+        Field that directly corresponds to the official API documentation is:
+        * last_battery
+        """
+
+        @classmethod
+        def _from_get_devices(cls, dict):
+            return cls(**dict)
+
+    class Networking(Model):
+        """
+        Fields that directly correspond to the official API documentation are:
+        * mnc
+        * mcc
+        * apn
+        * username
+        * password
+        * country
+        * provider
+        * type
+        * imei
+        * simid
+
+        In addition, the following undocumented fields are known to be sometimes returned by user.get_licenses().
+        These and other unexpected fields will be present exactly as returned by the server:
+        * mnc_sim
+        * mcc_sim
+        * mnc_home
+        * mcc_home
+        * modem
+        * roaming
+        """
+
+        @classmethod
+        def _from_get_devices(cls, dict):
+            return cls(**dict)
+
+    class Warnings(Model):
+        """
+        Fields that directly correspond to the official API documentation are:
+        * sensors
+        * sms_numbers - if the server returns a list here, each dictionary of this list will be converted to
+                        to a DeviceList.Device.Warnings.SMSNumbers model
+        """
+
+        @classmethod
+        def _from_get_devices(cls, dict):
+            return cls(**dict.to_submodel_lists(sms_numbers=Device.Warnings.SMSNumber._from_get_devices))
+
+        class SMSNumber(Model):
+            """
+            Fields that directly correspond to the official API documentation are:
+            * num
+            * name
+            * active
+            """
+
+            @classmethod
+            def _from_get_devices(cls, dict):
+                return cls(**dict)
+
+    class Licenses(Model):
+        """
+        Fields that directly correspons to the official API documentation are:
+        * models
+        * Forecast
+        """
+
+        @classmethod
+        def _from_get_devices(cls, dict):
+            return cls(**dict)
 
 
 class ApiClient:
+    """
+    Public methods of classes nested in this class directly correspond to API endpoints.
+    They return ApiResponse objects or throw ApiResponseException exceptions.
+    In addition, the returned objects may also inherit from models, as documented in each method.
+    Methods that accept arguments always accept dictionaries and other data types directly serializable to JSON.
+    In addition, they may also accept models, as document in each method.
+    """
     apiURI = 'https://api.fieldclimate.com/v1'
 
     class ClientRoute:
@@ -584,75 +537,76 @@ class ApiClient:
         async def _send(self, *args):
             return await self._client._send(*args)
 
-    class User(ClientRoute):
-        """User routes enables you to manage information regarding user you used to authenticate with."""
+        def _to_model(self, model, factory_name, type=dict):
 
-        async def user_information(self):
-            """Reading user information."""
+            async def send(*args):
+                try:
+                    ret = await self._send(*args)
+                    if type == dict and isinstance(ret.response, dict):
+                        return getattr(model._from_response(ret), factory_name)(Model._dict(ret.response))
+                    elif type == list and isinstance(ret.response, list):
+                        return ListResponse._from_response(ret)\
+                            (Model._from_list(ret.response, getattr(model, factory_name)))
+                    else:
+                        return ret
+                except ApiResponseException as api_response_exception:
+                    raise api_response_exception
+            return send
+
+        @staticmethod
+        def _from_model(model, factory_name):
             try:
-                ret = await self._send('GET', 'user')
-                return User.from_response(ret, ResponseSuccess) if ret.code == 200 else ret
-            except ApiResponseException as api_response_exception:
-                raise UnauthorizedException(api_response_exception) if api_response_exception.code == 401 \
-                    else api_response_exception
+                factory = getattr(model, factory_name)
+            except AttributeError:
+                pass
+            if 'factory' in locals():
+                return factory()
+            else:
+                return model
+
+    class User(ClientRoute):
+        # I'm changing names of the routes from the official API to something more sane.
+        # What's the point of writing a wrapper?
+        # This is already under user. It seems redundant to write client.user.user_information.
+        # IMO - client.user.get() is far simpler and self-explanatory.
+        async def get(self):
+            """
+            This method corresponds to the GET /user API endpoint.
+            If the server returns a dictionary, this method returns a User model.
+            """
+            return await self._to_model(User, '_from_get')('GET', 'user')
 
         # Are we allowed to try and test this method?
         # IIRC we had to remember not to call destructive methods?
         # I'd like to check if this call returns nothing or if it returns details similar to those of get_user;
         # because in the second case I'd want to construct a User object here, just like I'm doing in get_user
+        # Finally I'd like to test this dreaded newsletter
         # This method accepts both a dict as user_data or a User object. If one wishes to manually modify
         # what is being sent, they may call to_update_request on a User object, modify the dict and pass it here.
-        async def update_user_information(self, user_data):
-            """Updating user information."""
-            if isinstance(user_data, User):
-                user_data = user_data.to_update_request()
-
-            try:
-                ret = await self._send('PUT', 'user', user_data)
-                return ResponseSuccess(ret) if ret.code == 200 \
-                    else ResponseNoChangesHaveBeenMade(ret) if ret.code == 204 \
-                    else ret
-            except ApiResponseException as api_response_exception:
-                raise ValidationErrorsException(api_response_exception) if api_response_exception.code == 400 \
-                    else UnauthorizedException(api_response_exception) if api_response_exception.code == 401 \
-                    else UsernameAlreadyExistsException(api_response_exception) if api_response_exception.code == 409 \
-                    else api_response_exception
+        async def update(self, user_data):
+            """
+            This method corresponds to the PUT /user API endpoint.
+            Accepts a User model or a dictionary.
+            """
+            return await self._send('PUT', 'user', self._from_model(user_data, 'to_update'))
 
         # How to test this method??
-        async def delete_user_account(self):
-            """User himself can remove his own account. """
-            try:
-                ret = await self._send('DELETE', 'user')
-                return ResponseSuccess(ret) if ret.code == 200 \
-                    else ResponseAlreadyRemoved(ret) if ret.code == 204 \
-                    else ret
-            except ApiResponseException as api_response_exception:
-                raise LoginRequiredException(api_response_exception) if api_response_exception.code == 401 \
-                    else NoRightsException(api_response_exception) if api_response_exception.code == 403 \
-                    else api_response_exception
+        async def delete(self):
+            """This method corresponds to the DELETE /user API endpoint."""
+            return await self._send('DELETE', 'user')
 
-        async def list_of_user_devices(self):
-            """Reading list of user devices. Returned value may not be used by your application."""
+        async def get_devices(self):
+            """
+            This method corresponds to the GET /user/stations API endpoint.
+            If the server returns a list, this method returns a DeviceList model.
+            """
 
-            try:
-                ret = await self._send('GET', 'user/stations')
-                return DeviceList.from_response(ret, ResponseSuccess) if ret.code == 200 \
-                    else DeviceList.from_response(ret, ResponseNoDevices) if ret.code == 204 \
-                    else ret
-            except ApiResponseException as api_response_exception:
-                raise UnauthorizedException(api_response_exception) if api_response_exception.code == 401 \
-                    else api_response_exception
+            return await self._to_model(Device, '_from_get_devices', type=list)('GET', 'user/stations')
 
-        # I'm not making a model for this: I can't understand what the official API means by CROP; maybe I'll understand
-        # this and make a model when I reach disease models in official API
-        async def list_of_user_licenses(self):
+        # TODO: Model here
+        async def get_licenses(self):
             """Reading all licenses that user has for each of his device."""
-            try:
-                ret = await self._send('GET', 'user/licenses')
-                return ResponseSuccess(ret) if ret.code == 200 else ResponseNoLicenses(ret) if ret.code == 204 else ret
-            except ApiResponseException as api_response_exception:
-                raise UnauthorizedException(api_response_exception) if api_response_exception.code == 401 \
-                    else api_response_exception
+            return await self._send('GET', 'user/licenses')
 
     class System(ClientRoute):
         """System routes gives you all information you require to understand the system and what is supported."""
@@ -1044,9 +998,9 @@ class ClientBuilder:
                 content_type=None)  # So that we get None in case of empty server response instead of an exception
 
             if result.status >= 300:
-                raise ApiResponseException(result.status, response)
+                raise ApiResponseException._get_specific(result.status, response)
             else:
-                return ApiResponse(result.status, response)
+                return ApiResponse._get_specific(result.status, response)
 
     class HMAC(_ConnectionBase):
 
