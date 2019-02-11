@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
+from asyncio import gather
 
 import aiohttp
 import pkg_resources
@@ -116,20 +117,27 @@ class Model:
 
     @staticmethod
     def _to_factory(raw, factory_info):
-        if isinstance(raw, dict):
-            arg = Model._dict(raw)
-            try:
-                factory = factory_info['factory']
-            except (AttributeError, KeyError, TypeError):
-                factory = factory_info
-            try:
-                factory_args = factory_info['args']
-            except (AttributeError, KeyError, TypeError):
-                factory_args = []
-            try:
-                factory_kwargs = factory_info['kwargs']
-            except (AttributeError, KeyError, TypeError):
-                factory_kwargs = {}
+        try:
+            factory = factory_info['factory']
+        except (AttributeError, KeyError, TypeError):
+            factory = factory_info
+        try:
+            factory_args = factory_info['args']
+        except (AttributeError, KeyError, TypeError):
+            factory_args = []
+        try:
+            factory_kwargs = factory_info['kwargs']
+        except (AttributeError, KeyError, TypeError):
+            factory_kwargs = {}
+        try:
+            # Seems ugly and unpythonic for me. I'm sorry. However, I'm out of ideas how to otherwise avoid repeating
+            # boilerplate code :( Would love to hear such ideas.
+            expected_type = factory.__self__._expected_types[factory.__name__]
+        except (AttributeError, KeyError, TypeError):
+            expected_type = dict
+
+        if isinstance(raw, expected_type):
+            arg = Model._dict(raw) if expected_type == dict else raw
             ret = factory(arg, *factory_args, **factory_kwargs)
         else:
             ret = raw
@@ -137,13 +145,37 @@ class Model:
 
     @staticmethod
     def _from_list(l, factory_info):
-        return [Model._to_factory(Model._dict(elt), factory_info) if isinstance(elt, dict) else elt for elt in l]\
-            if isinstance(l, list) else l
+        if not isinstance(l, list):
+            return l
+        try:
+            pass_index = factory_info['pass_index']
+        except (AttributeError, KeyError, TypeError):
+            pass_index = False
+        if pass_index and 'kwargs' not in factory_info:
+            factory_info['kwargs'] = {}
+        ret = []
+        for i, elt in enumerate(l):
+            if pass_index:  # if pass_index is True then factory_info must be in its more detailed form
+                factory_info['kwargs']['i'] = i
+            ret.append(Model._to_factory(elt, factory_info))
+        return ret
 
     @staticmethod
     def _from_dict(d, factory_info):
-        return {k: Model._to_factory(Model._dict(d[k]), factory_info) if isinstance(d[k], dict) else d[k] for k in d}\
-            if isinstance(d, dict) else d
+        if not isinstance(d, dict):
+            return d
+        try:
+            pass_index = factory_info['pass_index']
+        except (AttributeError, KeyError, TypeError):
+            pass_index = False
+        if pass_index and 'kwargs' not in factory_info:
+            factory_info['kwargs'] = {}
+        ret = {}
+        for key, elt in d.items():
+            if pass_index:  # if pass_index is True then factory_info must be in its more detailed form
+                factory_info['kwargs']['i'] = key
+            ret[key] = Model._to_factory(d[key], factory_info)
+        return ret
 
     class _dict(dict):
         def ignore(self, to_ignore):
@@ -217,6 +249,16 @@ class Model:
             else:
                 ret[k] = self.__dict__[k]
         return ret
+
+
+class _StringModel(Model):
+
+    def __init__(self, _string, **kwargs):
+        self._string = _string
+        super().__init__(**kwargs)
+
+    def __str__(self):
+        return self._string
 
 
 class User(Model):
@@ -349,6 +391,59 @@ class User(Model):
             return self._to_dict('language', 'unit_system', 'newsletter')
 
 
+# I'm providing this class purely to support binding between user.get_devices and system.get_device_types
+# but am I not violating API docs for GET /user/stations which, for some very mysterious reason, says:
+# " Returned value may not be used by your application. " ??
+class DeviceType(_StringModel):
+    """
+    Model returned by system.get_device_types().
+
+    Its string representing the name of the device, but it can also be bound to a list of user devices, in which
+    case it will also provide one additional field:
+    * devices - a list of Device models of this type.
+    """
+
+    @classmethod
+    def _from_get_types(cls, string, i):
+        return cls(_string=string, _id=i)
+
+    _expected_types = {'_from_get_types': str}
+
+    def bind(self, devices):
+        """
+        Can be called either with a single device object passed as argument or with a list of devices.
+        Populates this model's devices field with these devices, whose info.device_id field
+        corresponds to this model's id.
+        Raises ValueError if passed a single device whose info.device_id field does not correspond to this model's id.
+        Example: The following code is equivalent to shortcuts.get_devices_and_types():
+            devices = await client.user.get_devices()
+            types = await client.system.get_device_types()
+            for device_type in types.values():
+                device_type.bind(devices)
+        """
+
+        # Dang there is repetition among binding functions. Will have to think how to fix this
+        def singleDevice(device, _raise):
+            try:
+                if str(device.info.device_id) == self._id or device.info.type == self:
+                    if not hasattr(self, 'devices'):
+                        self.devices = []
+                    self.devices.append(device)
+                    device.info.type = self
+                else:
+                    if _raise:
+                        raise ValueError()
+            except AttributeError:  # prepare for the weird case when the server did not return name or group fields
+                if _raise:
+                    raise ValueError()
+
+        if isinstance(devices, Device):
+            singleDevice(devices, True)
+        else:
+            for device in devices:
+                singleDevice(device, False)
+
+
 # TODO: Can rights be assumed to be a tuple of bools? read=bool write=bool
 # TODO Try to determie the above while reading the documentation to the end
 class Device(Model):
@@ -414,6 +509,9 @@ class Device(Model):
         These and other unexpected fields will be present exactly as returned by the server:
         * programmed
         * apn_table
+
+        Finally, the following field will only be present if the Device model is bound to a DeviceType:
+        * type - a reference to DeviceType
         """
 
         @classmethod
@@ -661,7 +759,7 @@ class ApiClient:
         async def _send(self, *args):
             return await self._client._send(*args)
 
-        def _to_model(self, model=None, factory_name='', type=Model):
+        def _to_model(self, model=None, factory_name='', type=Model, pass_index=False):
 
             async def send(*args):
                 try:
@@ -670,12 +768,14 @@ class ApiClient:
                         return getattr(model._from_response(ret), factory_name)(Model._dict(ret.response))
                     elif type == list and isinstance(ret.response, list):
                         return ListResponse._from_response(ret)\
-                            (Model._from_list(ret.response, getattr(model, factory_name)))
+                            (Model._from_list(ret.response,
+                                              {'factory': getattr(model, factory_name), 'pass_index': pass_index}))
                     elif type == bool and isinstance(ret.response, bool):
                         return ApiBoolResponse._from_response(ret)(ret.response)
                     elif type == dict and isinstance(ret.response, dict):
                         return DictResponse._from_response(ret)\
-                            (Model._from_dict(ret.response, getattr(model, factory_name)))
+                            (Model._from_dict(ret.response,
+                                              {'factory': getattr(model, factory_name), 'pass_index': pass_index}))
                     else:
                         return ret
                 except ApiResponseException as api_response_exception:
@@ -692,6 +792,32 @@ class ApiClient:
                 return factory()
             else:
                 return model
+
+    class Shortcuts(ClientRoute):
+        """
+        The methods of this class do not have a 1-1 correspondence to any particualr official API routes.
+        Instead, these are convenience methods, wrapping up in one call what would normally require the user to make
+        multiple calls.
+        """
+
+        async def get_devices_and_types(self):
+            """
+            Returns devices attached to a user account already grouped by device types.
+            Is equivalent to the following code:
+                devices = await client.user.get_devices()
+                types = await client.system.get_device_types()
+                for device_type in types.values():
+                    device_type.bind(devices)
+            """
+
+            devices, types = await gather(self._client.user.get_devices(), self._client.system.get_device_types())
+
+            if isinstance(types, dict):
+                for device_type in types.values():
+                    if isinstance(device_type, DeviceType):
+                        device_type.bind(devices)
+
+            return types
 
     class User(ClientRoute):
         """
@@ -770,15 +896,20 @@ class ApiClient:
 
         async def get_groups_with_sensors(self):
             """
-            This method corresponds to the GET /syste/group/sensors API endpoint.
+            This method corresponds to the GET /system/group/sensors API endpoint.
             If the server returns a dictionary, this method returns a dictionary of Group models, each containing
             a dictionary of Sensor models.
             """
             return await self._to_model(SensorGroup, '_from_get_groups', type=dict)('GET', 'system/group/sensors')
 
-        async def types_of_devices(self):
-            """Reading the list of all devices system supports."""
-            return await self._send('GET', 'system/types')
+        async def get_device_types(self):
+            """
+            This method corresponds to the GET /system/types API endpoint.
+            If the server returns a dictionary, this method returns a dictionary of DeviceType models, that can later
+            be bound to the returned value of user.get_devices().
+            """
+            return await self._to_model(DeviceType, '_from_get_types', type=dict, pass_index=True)\
+                ('GET', 'system/types')
 
         async def system_countries_support(self):
             """Reading the list of all countries that system supports."""
@@ -1071,6 +1202,10 @@ class ApiClient:
     async def _send(self, *args):
         resp = await self._auth._make_request(*args)
         return resp
+
+    @property
+    def shortcuts(self):
+        return ApiClient.Shortcuts(self)
 
     @property
     def user(self):
