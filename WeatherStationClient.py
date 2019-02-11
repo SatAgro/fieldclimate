@@ -91,6 +91,16 @@ class ListResponse(list):
         return _ListResponse
 
 
+class DictResponse(dict):
+    @classmethod
+    def _from_response(cls, response):
+        class _DictResponse(cls, type(response)):
+            def __init__(self, *args, **kwargs):
+                cls.__init__(self, *args, **kwargs)
+                type(response).__init__(self, response.code, response.response)
+        return _DictResponse
+
+
 class Model:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
@@ -127,7 +137,13 @@ class Model:
 
     @staticmethod
     def _from_list(l, factory_info):
-        return [Model._to_factory(Model._dict(elt), factory_info) for elt in l] if isinstance(l, list) else l
+        return [Model._to_factory(Model._dict(elt), factory_info) if isinstance(elt, dict) else elt for elt in l]\
+            if isinstance(l, list) else l
+
+    @staticmethod
+    def _from_dict(d, factory_info):
+        return {k: Model._to_factory(Model._dict(d[k]), factory_info) if isinstance(d[k], dict) else d[k] for k in d}\
+            if isinstance(d, dict) else d
 
     class _dict(dict):
         def ignore(self, to_ignore):
@@ -160,6 +176,15 @@ class Model:
             for k in self:
                 if k in kwargs:
                     ret[k] = Model._from_list(self[k], kwargs[k])
+                else:
+                    ret[k] = self[k]
+            return ret
+
+        def to_submodel_dicts(self, **kwargs):
+            ret = Model._dict()
+            for k in self:
+                if k in kwargs:
+                    ret[k] = Model._from_dict(self[k], kwargs[k])
                 else:
                     ret[k] = self[k]
             return ret
@@ -328,6 +353,8 @@ class User(Model):
 # TODO Try to determie the above while reading the documentation to the end
 class Device(Model):
     """
+    Model returned by user.get_devices().
+
     Fields that directly correspond to the official API documentation are:
     * name - if the server returns a dictionary here, this field will be a Device.Name model
     * rights
@@ -532,6 +559,91 @@ class Device(Model):
             return cls(**dict)
 
 
+class Sensor(Model):
+    """
+    Model returned by system.get_sensors() and indirectly system.get_groups_with_sensors().
+
+    Fields that directly correspond to the official API documentation are:
+    * name
+    * units
+    * code
+    * group - if bound (manually or when returned by get_groups_with_sensors() ),
+              this will be a reference to a Group model
+    * decimals
+    * divider
+    * vals
+    * aggr
+
+
+    In addition, the following undocumented field is known to be sometimes returned by user.get_devices().
+    This and other unexpected fields will be present exactly as returned by the server:
+    * unit
+    * multiplier
+    * power
+    * size
+    * desc
+    """
+
+    @classmethod
+    def _from_get_sensors(cls, dict):
+        return cls(**dict)
+
+
+class SensorGroup(Model):
+    """
+    Model returned by system.get_groups() and system.get_groups_with_sensors().
+
+    Fields that directly correspond to the official API documentation are:
+    * name
+    * group
+    * sensors - only present if returned from system.get_groups_with_sensors() or if manually bound to sensor(s)
+    """
+
+    @classmethod
+    def _from_get_groups(cls, _dict):
+        ret = cls(**_dict.to_submodel_dicts(sensors=Sensor._from_get_sensors))
+        if hasattr(ret, 'sensors') and isinstance(ret.sensors, dict):
+            ret.bind(dict(ret.sensors))
+        return ret
+
+    def bind(self, sensors):
+        """
+        Can be called either with a single sensor object passed as argument or with a dictionary of sensors.
+        Populates this model's sensors field with these sensors, whose group field
+        corresponds to this model's group field.
+        Raises ValueError if passed a single sensor whose group field does not correspond to this model's group field.
+        Example: The following code should be equivalent to system.get_groups_with_sensors()
+        (depending on responses from the server):
+            groups = await client.system.get_groups()
+            sensors = await client.system.get_sensors()
+            for group in groups.values():
+                group.bind(sensors)
+        """
+
+        def singleSensor(sensor, _raise, code=None):
+            try:
+                if code is None:
+                    code = sensor.code
+                if sensor.group == self.group \
+                        or (isinstance(sensor.group, SensorGroup) and sensor.group.group == self.group):
+                    if not hasattr(self, 'sensors'):
+                        self.sensors = {}
+                    self.sensors[code] = sensor
+                    sensor.group = self
+                else:
+                    if _raise:
+                        raise ValueError()
+            except AttributeError:  # prepare for the weird case when the server did not return name or group fields
+                if _raise:
+                    raise ValueError()
+
+        if isinstance(sensors, Sensor):
+            singleSensor(sensors, True)
+        else:
+            for sensor_code in sensors:
+                singleSensor(sensors[sensor_code], False, sensor_code)
+
+
 class ApiClient:
     """
     Public methods of classes nested in this class directly correspond to API endpoints.
@@ -549,18 +661,21 @@ class ApiClient:
         async def _send(self, *args):
             return await self._client._send(*args)
 
-        def _to_model(self, model=None, factory_name='', type=dict):
+        def _to_model(self, model=None, factory_name='', type=Model):
 
             async def send(*args):
                 try:
                     ret = await self._send(*args)
-                    if type == dict and isinstance(ret.response, dict):
+                    if type == Model and isinstance(ret.response, dict):
                         return getattr(model._from_response(ret), factory_name)(Model._dict(ret.response))
                     elif type == list and isinstance(ret.response, list):
                         return ListResponse._from_response(ret)\
                             (Model._from_list(ret.response, getattr(model, factory_name)))
                     elif type == bool and isinstance(ret.response, bool):
                         return ApiBoolResponse._from_response(ret)(ret.response)
+                    elif type == dict and isinstance(ret.response, dict):
+                        return DictResponse._from_response(ret)\
+                            (Model._from_dict(ret.response, getattr(model, factory_name)))
                     else:
                         return ret
                 except ApiResponseException as api_response_exception:
@@ -639,20 +754,27 @@ class ApiClient:
             """
             return await self._to_model(type=bool)('GET', 'system/status')
 
-        async def list_of_system_sensors(self):
-            """Reading the list of all system sensors. Each sensor has unique sensor code and belongs to group with
-            common specifications. """
-            return await self._send('GET', 'system/sensors')
+        async def get_sensors(self):
+            """
+            This method corresponds to the GET /system/sensors API endpoint.
+            If the server returns a dictionary, this method returns a dictionary of Sensor models.
+            """
+            return await self._to_model(Sensor, '_from_get_sensors', type=dict)('GET', 'system/sensors')
 
-        async def list_of_system_sensor_groups(self):
-            """Reading the list of all system groups. Each sensor belongs to a group which indicates commons
-            specifications. """
-            return await self._send('GET', 'system/groups')
+        async def get_groups(self):
+            """
+            This method corresponds to the GET /system/groups API endpoint.
+            If the server returns a dictionary, this method returns a dictionary of Group models.
+            """
+            return await self._to_model(SensorGroup, '_from_get_groups', type=dict)('GET', 'system/groups')
 
-        async def list_of_groups_and_sensors(self):
-            """Reading the list of all system groups and sensors belonging to them. Each sensor belongs to a group
-            which indicates commons specifications. """
-            return await self._send('GET', 'system/group/sensors')
+        async def get_groups_with_sensors(self):
+            """
+            This method corresponds to the GET /syste/group/sensors API endpoint.
+            If the server returns a dictionary, this method returns a dictionary of Group models, each containing
+            a dictionary of Sensor models.
+            """
+            return await self._to_model(SensorGroup, '_from_get_groups', type=dict)('GET', 'system/group/sensors')
 
         async def types_of_devices(self):
             """Reading the list of all devices system supports."""
