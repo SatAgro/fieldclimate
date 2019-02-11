@@ -61,6 +61,18 @@ class ApiResponse:
         return specific_type(code, response)
 
 
+class ApiBoolResponse(ApiResponse):
+    @classmethod
+    def _from_response(cls, response):
+        class _BoolResponse(cls, type(response)):
+            def __init__(self, value):
+                self._value = value
+                type(response).__init__(self, response.code, response.response)
+            def __bool__(self):
+                return self._value
+        return _BoolResponse
+
+
 class ResponseOK(ApiResponse):
     pass
 
@@ -537,7 +549,7 @@ class ApiClient:
         async def _send(self, *args):
             return await self._client._send(*args)
 
-        def _to_model(self, model, factory_name, type=dict):
+        def _to_model(self, model=None, factory_name='', type=dict):
 
             async def send(*args):
                 try:
@@ -547,6 +559,8 @@ class ApiClient:
                     elif type == list and isinstance(ret.response, list):
                         return ListResponse._from_response(ret)\
                             (Model._from_list(ret.response, getattr(model, factory_name)))
+                    elif type == bool and isinstance(ret.response, bool):
+                        return ApiBoolResponse._from_response(ret)(ret.response)
                     else:
                         return ret
                 except ApiResponseException as api_response_exception:
@@ -565,6 +579,9 @@ class ApiClient:
                 return model
 
     class User(ClientRoute):
+        """
+        Contains methods corresponding to the /user routes of the official API.
+        """
         # I'm changing names of the routes from the official API to something more sane.
         # What's the point of writing a wrapper?
         # This is already under user. It seems redundant to write client.user.user_information.
@@ -605,15 +622,22 @@ class ApiClient:
 
         # TODO: Model here
         async def get_licenses(self):
-            """Reading all licenses that user has for each of his device."""
+            """
+            This method corresponds to the GET /user/licenses API endpoint.
+            """
             return await self._send('GET', 'user/licenses')
 
     class System(ClientRoute):
-        """System routes gives you all information you require to understand the system and what is supported."""
+        """
+        Contains methods corresponding to the /system routes of the official API.
+        """
 
-        async def system_status(self):
-            """Checking system status."""
-            return await self._send('GET', 'system/status')
+        async def get_status(self):
+            """
+            This method corresponds to the GET /system/status API endpoint.
+            If the server returns a Boolean value, the value returned by this method will be convertible to bool.
+            """
+            return await self._to_model(type=bool)('GET', 'system/status')
 
         async def list_of_system_sensors(self):
             """Reading the list of all system sensors. Each sensor has unique sensor code and belongs to group with
