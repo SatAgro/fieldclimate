@@ -742,6 +742,57 @@ class SensorGroup(Model):
                 singleSensor(sensors[sensor_code], False, sensor_code)
 
 
+class DiseaseGroup(Model):
+    """
+    Returned by system.get_diseases.
+
+    Fields that directly correspond to the official API documentation are:
+    * group
+    * models - will be a DiseaseModel model
+    * title
+    * active
+    """
+
+    @classmethod
+    def _from_get_diseases(cls, dict):
+        return cls(**dict.to_submodel_lists(models=DiseaseGroup.DiseaseModel._from_get_diseases))
+
+    # TODO: Honestly, I think we'll have to parse values like settings.period, settings.resolution sooner or later,
+    # TODO: And also I'm afraid ignoring the Results and settings.aggregation fields is not appropriate, even though
+    # TODO: they're undocumented, they seem to be serving an important purpose
+    class DiseaseModel(Model):
+        """
+        Fields that directly correspond to the official API documentation are:
+        * key
+        * name
+        * version
+        * settings
+
+        In addition, the following undocumented field is known to be sometimes returned by user.get_devices().
+        This and other unexpected fields will be present exactly as returned by the server:
+        * results
+        """
+
+        @classmethod
+        def _from_get_diseases(cls, dict):
+            return cls(**dict.to_submodels(settings=DiseaseGroup.DiseaseModel.Settings._from_get_diseases))
+
+        class Settings(Model):
+            """
+            Fields that directly correspond to the official API documentation are:
+            * period
+            * resolution
+
+            In addition, the following undocumented field is known to be sometimes returned by user.get_devices().
+            This and other unexpected fields will be present exactly as returned by the server:
+            * aggregation
+            """
+
+            @classmethod
+            def _from_get_diseases(cls, dict):
+                return cls(**dict)
+
+
 class ApiClient:
     """
     Public methods of classes nested in this class directly correspond to API endpoints.
@@ -911,17 +962,27 @@ class ApiClient:
             return await self._to_model(DeviceType, '_from_get_types', type=dict, pass_index=True)\
                 ('GET', 'system/types')
 
-        async def system_countries_support(self):
-            """Reading the list of all countries that system supports."""
+        # My current understanding is that providing models for the two methods below will be overkill-sh.
+        # Though especially wrt timezones, maybe subsequent API calls will force me to reconsider
+        async def get_countries(self):
+            """
+            This method corresponds to the GET /system/countries API endpoint.
+            """
+
             return await self._send('GET', 'system/countries')
 
-        async def system_timezones_support(self):
-            """Reading the list of timezones system supports."""
+        async def get_timezones(self):
+            """
+            This method corresponds to the GET /system/timezones API endpoint.
+            """
             return await self._send('GET', 'system/timezones')
 
-        async def system_diseases_support(self):
-            """Reading the list of all disease models system currently supports."""
-            return await self._send('GET', 'system/diseases')
+        async def get_diseases(self):
+            """
+            This method corresponds to the GET /system/diseases API endpoint.
+            It should return a list of DiseaseGroup models.
+            """
+            return await self._to_model(DiseaseGroup, '_from_get_diseases', type=list)('GET', 'system/diseases')
 
     class Station(ClientRoute):
         """All the information that is related to your device."""
