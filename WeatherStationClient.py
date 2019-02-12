@@ -250,6 +250,85 @@ class Model:
                 ret[k] = self.__dict__[k]
         return ret
 
+    def _bind(self, submodels, self_key_attr, self_aggr_attr, self_aggr_type, submodel_key_attr,
+              submodel_ref_attr=None, submodel_id_attr=None):
+
+        if submodel_ref_attr is None:
+            submodel_ref_attr = submodel_key_attr
+
+        def single_submodel(submodel, _raise, id_override=None):
+            try:
+
+                def get_nested_attr(obj, attr_name):
+                    attrs = attr_name.split('.')
+                    for attr in attrs:
+                        obj = getattr(obj, attr)
+                    return obj
+
+                def has_nested_attr(obj, attr_name):
+                    try:
+                        get_nested_attr(obj, attr_name)
+                        return True
+                    except AttributeError:
+                        return False
+
+                def set_nested_attr(obj, attr_name, val):
+                    path = '.'.join(attr_name.split('.')[:-1])
+                    obj = get_nested_attr(obj, path) if path else obj
+                    attr_name = attr_name.split('.')[-1]
+                    setattr(obj, attr_name, val)
+
+                submodel_key = get_nested_attr(submodel, submodel_key_attr)
+                self_key = get_nested_attr(self, self_key_attr)
+
+                # 5 and '5' must compare as equal
+                if isinstance(submodel_key, int) or isinstance(submodel_key, float):
+                    submodel_key = str(submodel_key)
+                if isinstance(self_key, int) or isinstance(self_key, float):
+                    self_key = str(self_key)
+
+                def is_already_bound():
+                    try:
+                        target = get_nested_attr(submodel, submodel_ref_attr)
+                        return target == self
+                    except AttributeError:
+                        return False
+
+                def keys_match():
+                    return self_key == submodel_key
+
+                def add_to_aggr():
+                    if not has_nested_attr(self, self_aggr_attr):
+                        set_nested_attr(self, self_aggr_attr, self_aggr_type())
+                    aggr = getattr(self, self_aggr_attr)
+                    if self_aggr_type == list:
+                        aggr.append(submodel)
+                    elif self_aggr_type == dict:
+                        if id_override is not None:
+                            submodel_id = id_override
+                        else:
+                            submodel_id = get_nested_attr(submodel, submodel_id_attr)
+                        aggr[submodel_id] = submodel
+                    set_nested_attr(submodel, submodel_ref_attr, self)
+
+                if is_already_bound() or keys_match():
+                    add_to_aggr()
+                else:
+                    if _raise:
+                        raise ValueError()
+            except AttributeError:  # prepare for the weird case when the server did not return name or group fields
+                if _raise:
+                    raise ValueError()
+
+        if isinstance(submodels, list):
+            for submodel in submodels:
+                single_submodel(submodel, False)
+        elif isinstance(submodels, dict):
+            for submodel_id, submodel in submodels.items():
+                single_submodel(submodel, False, submodel_id)
+        else:
+            single_submodel(submodels, True)
+
 
 class _StringModel(Model):
 
@@ -422,26 +501,8 @@ class DeviceType(_StringModel):
                 device_type.bind(devices)
         """
 
-        # Dang there is repetition among binding functions. Will have to think how to fix this
-        def singleDevice(device, _raise):
-            try:
-                if str(device.info.device_id) == self._id or device.info.type == self:
-                    if not hasattr(self, 'devices'):
-                        self.devices = []
-                    self.devices.append(device)
-                    device.info.type = self
-                else:
-                    if _raise:
-                        raise ValueError()
-            except AttributeError:  # prepare for the weird case when the server did not return name or group fields
-                if _raise:
-                    raise ValueError()
-
-        if isinstance(devices, Device):
-            singleDevice(devices, True)
-        else:
-            for device in devices:
-                singleDevice(device, False)
+        self._bind(devices, self_key_attr='_id', self_aggr_attr='devices', self_aggr_type=list,
+                   submodel_key_attr='info.device_id', submodel_ref_attr='info.type')
 
 
 # TODO: Can rights be assumed to be a tuple of bools? read=bool write=bool
@@ -718,28 +779,8 @@ class SensorGroup(Model):
                 group.bind(sensors)
         """
 
-        def singleSensor(sensor, _raise, code=None):
-            try:
-                if code is None:
-                    code = sensor.code
-                if sensor.group == self.group \
-                        or (isinstance(sensor.group, SensorGroup) and sensor.group.group == self.group):
-                    if not hasattr(self, 'sensors'):
-                        self.sensors = {}
-                    self.sensors[code] = sensor
-                    sensor.group = self
-                else:
-                    if _raise:
-                        raise ValueError()
-            except AttributeError:  # prepare for the weird case when the server did not return name or group fields
-                if _raise:
-                    raise ValueError()
-
-        if isinstance(sensors, Sensor):
-            singleSensor(sensors, True)
-        else:
-            for sensor_code in sensors:
-                singleSensor(sensors[sensor_code], False, sensor_code)
+        self._bind(sensors, self_key_attr='group', self_aggr_attr='sensors', self_aggr_type=dict,
+                   submodel_key_attr='group', submodel_id_attr='code')
 
 
 class DiseaseGroup(Model):
