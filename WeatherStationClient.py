@@ -9,6 +9,28 @@ from Crypto.Hash import HMAC
 from Crypto.Hash import SHA256
 
 
+def get_nested_attr(obj, attr_name):
+    attrs = attr_name.split('.')
+    for attr in attrs:
+        obj = getattr(obj, attr)
+    return obj
+
+
+def has_nested_attr(obj, attr_name):
+    try:
+        get_nested_attr(obj, attr_name)
+        return True
+    except AttributeError:
+        return False
+
+
+def set_nested_attr(obj, attr_name, val):
+    path = '.'.join(attr_name.split('.')[:-1])
+    obj = get_nested_attr(obj, path) if path else obj
+    attr_name = attr_name.split('.')[-1]
+    setattr(obj, attr_name, val)
+
+
 def get_credentials():
     return yaml.load(pkg_resources.resource_stream(__name__, 'credentials.yml'))
 
@@ -105,6 +127,17 @@ class DictResponse(dict):
 class Model:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
+
+    def __eq__(self, other):
+        if not (isinstance(self, type(other)) or isinstance(other, type(self))):
+            return False
+        try:
+            self_key = get_nested_attr(self, self._key)
+            other_key = get_nested_attr(other, other._key)
+            return self_key == other_key
+        except AttributeError:
+            # Key comparison not defined or server did not return crucial fields: falling back to identity comparison
+            return self is other
 
     @classmethod
     def _from_response(cls, response):
@@ -256,28 +289,8 @@ class Model:
         if submodel_ref_attr is None:
             submodel_ref_attr = submodel_key_attr
 
-        def single_submodel(submodel, _raise, id_override=None):
+        def single_submodel(submodel, _raise):
             try:
-
-                def get_nested_attr(obj, attr_name):
-                    attrs = attr_name.split('.')
-                    for attr in attrs:
-                        obj = getattr(obj, attr)
-                    return obj
-
-                def has_nested_attr(obj, attr_name):
-                    try:
-                        get_nested_attr(obj, attr_name)
-                        return True
-                    except AttributeError:
-                        return False
-
-                def set_nested_attr(obj, attr_name, val):
-                    path = '.'.join(attr_name.split('.')[:-1])
-                    obj = get_nested_attr(obj, path) if path else obj
-                    attr_name = attr_name.split('.')[-1]
-                    setattr(obj, attr_name, val)
-
                 submodel_key = get_nested_attr(submodel, submodel_key_attr)
                 self_key = get_nested_attr(self, self_key_attr)
 
@@ -290,7 +303,7 @@ class Model:
                 def is_already_bound():
                     try:
                         target = get_nested_attr(submodel, submodel_ref_attr)
-                        return target == self
+                        return target is self
                     except AttributeError:
                         return False
 
@@ -302,12 +315,16 @@ class Model:
                         set_nested_attr(self, self_aggr_attr, self_aggr_type())
                     aggr = getattr(self, self_aggr_attr)
                     if self_aggr_type == list:
-                        aggr.append(submodel)
+                        # Rationale: (1) User calls user.get_stations and binds them to types;
+                        # (2) user calls station.update and then station.get();
+                        # (3) user binds this updated station to types. We want the new station to replace the old one
+                        try:
+                            i = aggr.index(submodel)
+                            aggr[i] = submodel
+                        except ValueError:
+                            aggr.append(submodel)
                     elif self_aggr_type == dict:
-                        if id_override is not None:
-                            submodel_id = id_override
-                        else:
-                            submodel_id = get_nested_attr(submodel, submodel_id_attr)
+                        submodel_id = get_nested_attr(submodel, submodel_id_attr)
                         aggr[submodel_id] = submodel
                     set_nested_attr(submodel, submodel_ref_attr, self)
 
@@ -325,7 +342,7 @@ class Model:
                 single_submodel(submodel, False)
         elif isinstance(submodels, dict):
             for submodel_id, submodel in submodels.items():
-                single_submodel(submodel, False, submodel_id)
+                single_submodel(submodel, False)
         else:
             single_submodel(submodels, True)
 
@@ -470,17 +487,19 @@ class User(Model):
             return self._to_dict('language', 'unit_system', 'newsletter')
 
 
-# I'm providing this class purely to support binding between user.get_devices and system.get_device_types
+# I'm providing this class purely to support binding between user.get_stations and system.get_types
 # but am I not violating API docs for GET /user/stations which, for some very mysterious reason, says:
 # " Returned value may not be used by your application. " ??
-class DeviceType(_StringModel):
+class StationType(_StringModel):
     """
-    Model returned by system.get_device_types().
+    Model returned by system.get_types().
 
-    Its string representing the name of the device, but it can also be bound to a list of user devices, in which
+    Its string representing the name of the type, but it can also be bound to a list of user stations, in which
     case it will also provide one additional field:
-    * devices - a list of Device models of this type.
+    * stations - a list of Station models of this type.
     """
+
+    _key = '_id'
 
     @classmethod
     def _from_get_types(cls, string, i):
@@ -488,60 +507,66 @@ class DeviceType(_StringModel):
 
     _expected_types = {'_from_get_types': str}
 
-    def bind(self, devices):
+    def bind(self, stations):
         """
-        Can be called either with a single device object passed as argument or with a list of devices.
-        Populates this model's devices field with these devices, whose info.device_id field
+        Can be called either with a single station object passed as argument or with a list of stations.
+        Populates this model's stations field with these stations, whose info.device_id field
         corresponds to this model's id.
-        Raises ValueError if passed a single device whose info.device_id field does not correspond to this model's id.
-        Example: The following code is equivalent to shortcuts.get_devices_and_types():
-            devices = await client.user.get_devices()
-            types = await client.system.get_device_types()
-            for device_type in types.values():
-                device_type.bind(devices)
+        Raises ValueError if passed a single station whose info.device_id field does not correspond to this model's id.
+        Example: The following code is equivalent to shortcuts.get_stations_by_types():
+            stations = await client.user.get_stations()
+            types = await client.system.get_types()
+            for station_type in types.values():
+                station_type.bind(stations)
         """
 
-        self._bind(devices, self_key_attr='_id', self_aggr_attr='devices', self_aggr_type=list,
+        self._bind(stations, self_key_attr='_id', self_aggr_attr='stations', self_aggr_type=list,
                    submodel_key_attr='info.device_id', submodel_ref_attr='info.type')
 
 
 # TODO: Can rights be assumed to be a tuple of bools? read=bool write=bool
 # TODO Try to determie the above while reading the documentation to the end
-class Device(Model):
+class Station(Model):
     """
-    Model returned by user.get_devices().
+    Model returned by user.get_stations().
 
     Fields that directly correspond to the official API documentation are:
-    * name - if the server returns a dictionary here, this field will be a Device.Name model
+    * name - if the server returns a dictionary here, this field will be a Station.Name model
     * rights
-    * info - if the server returns a dictionary here, this field will be a Device.Info model
-    * dates - if the server returns a dictionary here, this field will be a Device.Dates model
-    * position - if the server returns a dictionary here, this field will be a Device.Position model
-    * config - if the server returns a dictionary here, this field will be a Device.Config model
-    * metadata - if the server returns a dictionary here, this field will be a Device.Metadata model
-    * networking - if the server returns a dictionary here, this field will be a Device.Networking model
-    * warnings - if the server returns a dictionary here, this field will be a Device.Warnings model
+    * info - if the server returns a dictionary here, this field will be a Station.Info model
+    * dates - if the server returns a dictionary here, this field will be a Station.Dates model
+    * position - if the server returns a dictionary here, this field will be a Station.Position model
+    * config - if the server returns a dictionary here, this field will be a Station.Config model
+    * metadata - if the server returns a dictionary here, this field will be a Station.Metadata model
+    * networking - if the server returns a dictionary here, this field will be a Station.Networking model
+    * warnings - if the server returns a dictionary here, this field will be a Station.Warnings model
     * flags
-    * licenses - if the server returns a dictionary here, this field will be a Device.Licenses model.
+    * licenses - if the server returns a dictionary here, this field will be a Station.Licenses model.
                  However, a Boolean value of False is known to be sometimes returned instead
 
-    In addition, the following undocumented field is known to be sometimes returned by user.get_devices().
+    In addition, the following undocumented field is known to be sometimes returned by user.get_stations().
     This and other unexpected fields will be present exactly as returned by the server:
     * meta
     """
 
     # No model for Flags because I think it semantically makes most sense as a dictionary of bools
+
+    _key = 'name.original'
+
+    def __eq__(self, other):
+        return self.name.original == other.name.original
+
     @classmethod
-    def _from_get_devices(cls, dict):
-        return cls(**dict.to_submodels(name=Device.Name._from_get_devices,
-                                       info=Device.Info._from_get_devices,
-                                       dates=Device.Dates._from_get_devices,
-                                       position=Device.Position._from_get_devices,
-                                       config=Device.Config._from_get_devices,
-                                       metadata=Device.Metadata._from_get_devices,
-                                       networking=Device.Networking._from_get_devices,
-                                       warnings=Device.Warnings._from_get_devices,
-                                       licenses=Device.Licenses._from_get_devices))
+    def _from_get_stations(cls, dict):
+        return cls(**dict.to_submodels(name=Station.Name._from_get_stations,
+                                       info=Station.Info._from_get_stations,
+                                       dates=Station.Dates._from_get_stations,
+                                       position=Station.Position._from_get_stations,
+                                       config=Station.Config._from_get_stations,
+                                       metadata=Station.Metadata._from_get_stations,
+                                       networking=Station.Networking._from_get_stations,
+                                       warnings=Station.Warnings._from_get_stations,
+                                       licenses=Station.Licenses._from_get_stations))
 
     class Name(Model):
         """
@@ -551,7 +576,7 @@ class Device(Model):
         """
 
         @classmethod
-        def _from_get_devices(cls, dict):
+        def _from_get_stations(cls, dict):
             return cls(**dict)
 
     # TODO: Should max_time be datetime?
@@ -571,12 +596,12 @@ class Device(Model):
         * programmed
         * apn_table
 
-        Finally, the following field will only be present if the Device model is bound to a DeviceType:
-        * type - a reference to DeviceType
+        Finally, the following field will only be present if the Station model is bound to a StationType:
+        * type - a reference to StationType
         """
 
         @classmethod
-        def _from_get_devices(cls, dict):
+        def _from_get_stations(cls, dict):
             return cls(**dict)
 
     class Dates(Model):
@@ -591,19 +616,19 @@ class Device(Model):
         """
 
         @classmethod
-        def _from_get_devices(cls, dict):
+        def _from_get_stations(cls, dict):
             return cls(**dict.to_datetimes('min_date', 'max_date', 'created_at', 'last_communication'))
 
     class Position(Model):
         """
         Fields that directly correspond to the official API documentation are:
-        * geo - if the server returns a dictionary here, this field will be a Device.Position.Geo model
+        * geo - if the server returns a dictionary here, this field will be a Station.Position.Geo model
         * altitude
         """
 
         @classmethod
-        def _from_get_devices(cls, dict):
-            return cls(**dict.to_submodels(geo=Device.Position.Geo._from_get_devices))
+        def _from_get_stations(cls, dict):
+            return cls(**dict.to_submodels(geo=Station.Position.Geo._from_get_stations))
 
         class Geo(Model):
             """
@@ -612,7 +637,7 @@ class Device(Model):
             """
 
             @classmethod
-            def _from_get_devices(cls, dict):
+            def _from_get_stations(cls, dict):
                 return cls(**dict)
 
     class Config(Model):
@@ -641,7 +666,7 @@ class Device(Model):
         """
 
         @classmethod
-        def _from_get_devices(cls, dict):
+        def _from_get_stations(cls, dict):
             return cls(**dict)
 
     class Metadata(Model):
@@ -651,7 +676,7 @@ class Device(Model):
         """
 
         @classmethod
-        def _from_get_devices(cls, dict):
+        def _from_get_stations(cls, dict):
             return cls(**dict)
 
     class Networking(Model):
@@ -676,23 +701,28 @@ class Device(Model):
         * mcc_home
         * modem
         * roaming
+
+        Note: The server is known to sometimes return the field 'usernme'. In such a case, this field will still be
+        stored in this model under the name 'username'
         """
 
         @classmethod
-        def _from_get_devices(cls, dict):
-            return cls(**dict)
+        def _from_get_stations(cls, dict):
+            if 'usernme' in dict and 'username' not in dict:
+                dict['username'] = dict['usernme']
+            return cls(**dict.ignore('usernme'))
 
     class Warnings(Model):
         """
         Fields that directly correspond to the official API documentation are:
         * sensors
         * sms_numbers - if the server returns a list here, each dictionary of this list will be converted to
-                        to a DeviceList.Device.Warnings.SMSNumbers model
+                        to a Station.Warnings.SMSNumbers model
         """
 
         @classmethod
-        def _from_get_devices(cls, dict):
-            return cls(**dict.to_submodel_lists(sms_numbers=Device.Warnings.SMSNumber._from_get_devices))
+        def _from_get_stations(cls, dict):
+            return cls(**dict.to_submodel_lists(sms_numbers=Station.Warnings.SMSNumber._from_get_stations))
 
         class SMSNumber(Model):
             """
@@ -703,7 +733,7 @@ class Device(Model):
             """
 
             @classmethod
-            def _from_get_devices(cls, dict):
+            def _from_get_stations(cls, dict):
                 return cls(**dict)
 
     class Licenses(Model):
@@ -714,7 +744,7 @@ class Device(Model):
         """
 
         @classmethod
-        def _from_get_devices(cls, dict):
+        def _from_get_stations(cls, dict):
             return cls(**dict)
 
 
@@ -734,7 +764,7 @@ class Sensor(Model):
     * aggr
 
 
-    In addition, the following undocumented field is known to be sometimes returned by user.get_devices().
+    In addition, the following undocumented field is known to be sometimes returned by user.get_stations().
     This and other unexpected fields will be present exactly as returned by the server:
     * unit
     * multiplier
@@ -742,6 +772,8 @@ class Sensor(Model):
     * size
     * desc
     """
+
+    _key = 'code'
 
     @classmethod
     def _from_get_sensors(cls, dict):
@@ -758,6 +790,8 @@ class SensorGroup(Model):
     * sensors - only present if returned from system.get_groups_with_sensors() or if manually bound to sensor(s)
     """
 
+    _key = 'group'
+
     @classmethod
     def _from_get_groups(cls, _dict):
         ret = cls(**_dict.to_submodel_dicts(sensors=Sensor._from_get_sensors))
@@ -771,7 +805,7 @@ class SensorGroup(Model):
         Populates this model's sensors field with these sensors, whose group field
         corresponds to this model's group field.
         Raises ValueError if passed a single sensor whose group field does not correspond to this model's group field.
-        Example: The following code should be equivalent to system.get_groups_with_sensors()
+        Example: The following code should be equivalent to system.get_sensors_by_groups()
         (depending on responses from the server):
             groups = await client.system.get_groups()
             sensors = await client.system.get_sensors()
@@ -794,44 +828,49 @@ class DiseaseGroup(Model):
     * active
     """
 
+    _key = 'group'
+
     @classmethod
     def _from_get_diseases(cls, dict):
-        return cls(**dict.to_submodel_lists(models=DiseaseGroup.DiseaseModel._from_get_diseases))
+        return cls(**dict.to_submodel_lists(models=DiseaseModel._from_get_diseases))
 
-    # TODO: Honestly, I think we'll have to parse values like settings.period, settings.resolution sooner or later,
-    # TODO: And also I'm afraid ignoring the Results and settings.aggregation fields is not appropriate, even though
-    # TODO: they're undocumented, they seem to be serving an important purpose
-    class DiseaseModel(Model):
+
+# TODO: Honestly, I think we'll have to parse values like settings.period, settings.resolution sooner or later,
+# TODO: And also I'm afraid ignoring the Results and settings.aggregation fields is not appropriate, even though
+# TODO: they're undocumented, they seem to be serving an important purpose
+class DiseaseModel(Model):
+    """
+    Fields that directly correspond to the official API documentation are:
+    * key
+    * name
+    * version
+    * settings
+
+    In addition, the following undocumented field is known to be sometimes returned by user.get_stations().
+    This and other unexpected fields will be present exactly as returned by the server:
+    * results
+    """
+
+    _key = 'key'
+
+    @classmethod
+    def _from_get_diseases(cls, dict):
+        return cls(**dict.to_submodels(settings=DiseaseModel.Settings._from_get_diseases))
+
+    class Settings(Model):
         """
         Fields that directly correspond to the official API documentation are:
-        * key
-        * name
-        * version
-        * settings
+        * period
+        * resolution
 
-        In addition, the following undocumented field is known to be sometimes returned by user.get_devices().
+        In addition, the following undocumented field is known to be sometimes returned by user.get_stations().
         This and other unexpected fields will be present exactly as returned by the server:
-        * results
+        * aggregation
         """
 
         @classmethod
         def _from_get_diseases(cls, dict):
-            return cls(**dict.to_submodels(settings=DiseaseGroup.DiseaseModel.Settings._from_get_diseases))
-
-        class Settings(Model):
-            """
-            Fields that directly correspond to the official API documentation are:
-            * period
-            * resolution
-
-            In addition, the following undocumented field is known to be sometimes returned by user.get_devices().
-            This and other unexpected fields will be present exactly as returned by the server:
-            * aggregation
-            """
-
-            @classmethod
-            def _from_get_diseases(cls, dict):
-                return cls(**dict)
+            return cls(**dict)
 
 
 class ApiClient:
@@ -892,22 +931,22 @@ class ApiClient:
         multiple calls.
         """
 
-        async def get_devices_and_types(self):
+        async def get_stations_by_types(self):
             """
-            Returns devices attached to a user account already grouped by device types.
+            Returns stations attached to a user account already grouped by station types.
             Is equivalent to the following code:
-                devices = await client.user.get_devices()
-                types = await client.system.get_device_types()
-                for device_type in types.values():
-                    device_type.bind(devices)
+                stations = await client.user.get_stations()
+                types = await client.system.get_station_types()
+                for station_type in types.values():
+                    station_type.bind(stations)
             """
 
-            devices, types = await gather(self._client.user.get_devices(), self._client.system.get_device_types())
+            stations, types = await gather(self._client.user.get_stations(), self._client.system.get_types())
 
             if isinstance(types, dict):
-                for device_type in types.values():
-                    if isinstance(device_type, DeviceType):
-                        device_type.bind(devices)
+                for station_type in types.values():
+                    if isinstance(station_type, StationType):
+                        station_type.bind(stations)
 
             return types
 
@@ -945,13 +984,13 @@ class ApiClient:
             """This method corresponds to the DELETE /user API endpoint."""
             return await self._send('DELETE', 'user')
 
-        async def get_devices(self):
+        async def get_stations(self):
             """
             This method corresponds to the GET /user/stations API endpoint.
-            If the server returns a list, this method returns a DeviceList model.
+            If the server returns a list, this method returns a list of Station models.
             """
 
-            return await self._to_model(Device, '_from_get_devices', type=list)('GET', 'user/stations')
+            return await self._to_model(Station, '_from_get_stations', type=list)('GET', 'user/stations')
 
         # TODO: Model here
         async def get_licenses(self):
@@ -986,7 +1025,7 @@ class ApiClient:
             """
             return await self._to_model(SensorGroup, '_from_get_groups', type=dict)('GET', 'system/groups')
 
-        async def get_groups_with_sensors(self):
+        async def get_sensors_by_groups(self):
             """
             This method corresponds to the GET /system/group/sensors API endpoint.
             If the server returns a dictionary, this method returns a dictionary of Group models, each containing
@@ -994,13 +1033,13 @@ class ApiClient:
             """
             return await self._to_model(SensorGroup, '_from_get_groups', type=dict)('GET', 'system/group/sensors')
 
-        async def get_device_types(self):
+        async def get_types(self):
             """
             This method corresponds to the GET /system/types API endpoint.
-            If the server returns a dictionary, this method returns a dictionary of DeviceType models, that can later
-            be bound to the returned value of user.get_devices().
+            If the server returns a dictionary, this method returns a dictionary of StationType models, that can later
+            be bound to the returned value of user.get_stations().
             """
-            return await self._to_model(DeviceType, '_from_get_types', type=dict, pass_index=True)\
+            return await self._to_model(StationType, '_from_get_types', type=dict, pass_index=True)\
                 ('GET', 'system/types')
 
         # My current understanding is that providing models for the two methods below will be overkill-sh.
@@ -1026,14 +1065,51 @@ class ApiClient:
             return await self._to_model(DiseaseGroup, '_from_get_diseases', type=list)('GET', 'system/diseases')
 
     class Station(ClientRoute):
-        """All the information that is related to your device."""
+        """
+        Contains methods corresponding to the /station routes of the official API.
+        """
 
-        async def station_information(self, station_id):
-            """Reading station information."""
-            return await self._send('GET', f'station/{station_id}')
+        # Assumption is that a station's device type doesn't change in time... Because otherwise this throws
+        # This can be fixed ofc, but what is the appropriate level of paranoia wrt what this server returns?
+        # Also this is another point where code may get very repetitive very soon... also will have to fix this
+        async def get(self, station_id):
+            """
+            This method corresponds to the GET /station/{{STATION-ID}} route of the official API.
+            It returns a Station model.
+            It can be passed either a string representing a station ID or a Station model. In the latter case, its
+            name.original field will be used to retrieve its ID.
+            If passed a Station model that is already bound to a StationType, the returned Station will also be bound
+            to the same StationType and the type's binding will be updated to refer to the returned Station model.
+            """
+            if isinstance(station_id, Station):
+                try:
+                    try:
+                        type = station_id.info.type
+                    except AttributeError:
+                        pass  # Unbound; the returned station will be unbound as well
+                    station_id = station_id.name.original
+                except AttributeError:
+                    raise ValueError
+            ret = await self._to_model(Station, '_from_get_stations')('GET', f'station/{station_id}')
+            try:
+                type.bind(ret)
+            except NameError:
+                pass  # type not defined, we were not passed a bound station
+            return ret
 
-        async def update_station_information(self, station_id, station_data):
-            """Updating station information/settings."""
+        async def update(self, station_id, station_data):
+            """
+            This method corresponds to the PUT /station/{{STATION-ID}} route of the official API.
+            If the first argument is a Station model, the second argument does not have to be provided.
+            Otherwise, it is expected that the first argument is a string representing the station's ID, while the
+            second argument is a dictionary possible to be serialized into JSON.
+            """
+            if isinstance(station_id, Station):
+                try:
+                    station_id = station_id.name.original
+                except AttributeError:
+                    raise ValueError
+
             return await self._send('PUT', f'station/{station_id}', station_data)
 
         async def station_sensors(self, station_id):
