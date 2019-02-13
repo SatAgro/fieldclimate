@@ -40,7 +40,7 @@ class TestApiCalls(unittest.TestCase):
 
     def assertCall(self, mock_response, expected_method, expected_route, expected_body=None):
         self.assertEqual(mock_response['method'], expected_method)
-        self.assertEqual(mock_response['url'], f'{ApiClient.apiURI}/{expected_route}')
+        self.assertEqual(mock_response['url'], '{}/{}'.format(ApiClient.apiURI, expected_route))
         self.assertEqual(mock_response['body'], expected_body)
         self.assertEqual(mock_response['headers'], {'Accept': 'application/json'})
 

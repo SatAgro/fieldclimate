@@ -108,166 +108,166 @@ class ApiClient:
 
         async def station_information(self, station_id):
             """Reading station information."""
-            return await self._send('GET', f'station/{station_id}')
+            return await self._send('GET', 'station/{}'.format(station_id))
 
         async def update_station_information(self, station_id, station_data):
             """Updating station information/settings."""
-            return await self._send('PUT', f'station/{station_id}', station_data)
+            return await self._send('PUT', 'station/{}'.format(station_id), station_data)
 
         async def station_sensors(self, station_id):
             """Reading the list of all sensors that your device has/had."""
-            return await self._send('GET', f'station/{station_id}/sensors')
+            return await self._send('GET', 'station/{}/sensors'.format(station_id))
 
         async def station_sensor_update(self, station_id, sensor_data):
             """Updating station sensor name, unit ..."""
-            return await self._send('PUT', f'station/{station_id}/sensors', sensor_data)
+            return await self._send('PUT', 'station/{}/sensors'.format(station_id), sensor_data)
 
         async def station_nodes(self, station_id):
             """Station nodes are wireless nodes connected to base station (station_id). Here you can list custom
             names if any of a node has custom name. """
-            return await self._send('GET', f'station/{station_id}/nodes')
+            return await self._send('GET', 'station/{}/nodes'.format(station_id))
 
         async def change_node_name(self, station_id, node_data):
             """Updating station sensor name, unit ..."""
-            return await self._send('PUT', f'station/{station_id}/nodes', node_data)
+            return await self._send('PUT', 'station/{}/nodes'.format(station_id), node_data)
 
         async def station_serials(self, station_id):
             """Sensor serials settings. If there are no settings we get no content response."""
-            return await self._send('GET', f'station/{station_id}/serials')
+            return await self._send('GET', 'station/{}/serials'.format(station_id))
 
         async def change_serial_name(self, station_id, serial_data):
             """Updating sensor serial information."""
-            return await self._send('PUT', f'station/{station_id}/serials', serial_data)
+            return await self._send('PUT', 'station/{}/serials'.format(station_id), serial_data)
 
         async def add_station_to_account(self, station_id, station_key, station_data):
             """Adding station to user account. Key 1 and Key 2 are supplied with device itself."""
-            return await self._send('POST', f'station/{station_id}/{station_key}', station_data)
+            return await self._send('POST', 'station/{}/{}'.format(station_id, station_key), station_data)
 
         async def remove_station_from_account(self, station_id, station_key):
             """Removing station from current account. The keys come with device itself."""
-            return await self._send('DELETE', f'station/{station_id}/{station_key}')
+            return await self._send('DELETE','station/{}/{}'.format(station_id, station_key))
 
         async def stations_in_proximity(self, station_id, radius):
             """Find stations in proximity of specified station."""
-            return await self._send('GET', f'station/{station_id}/proximity/{radius}')
+            return await self._send('GET', 'station/{}/proximity/{}'.format(station_id, radius))
 
         async def station_last_events(self, station_id, amount, sort=None):
             """Read last X amount of station events. Optionally you can also sort them ASC or DESC."""
-            uri = f'station/{station_id}/events/last/{amount}'
+            uri = 'station/{}/events/last/{}'.format(station_id, amount)
             if sort is not None:
-                uri = uri + f'/{sort}'
+                uri = uri + '/{}'.format(sort)
             return await self._send('GET', uri)
 
         async def station_events_between(self, station_id, from_unix_timestamp, to_unix_timestamp, sort=None):
             """Read station events between time period you select. Optionally you can also sort them ASC or DESC."""
-            uri = f'station/{station_id}/events/from/{from_unix_timestamp}/to/{to_unix_timestamp}'
+            uri = 'station/{}/events/from/{}/to/{}'.format(station_id, from_unix_timestamp, to_unix_timestamp)
             if sort is not None:
-                uri = uri + f'/{sort}'
+                uri = uri + '/{}'.format(sort)
             return await self._send('GET', uri)
 
         async def station_transmission_history_last(self, station_id, amount, filter=None, sort=None):
             """Read last X amount of station transmission history. Optionally you can also sort them ASC or DESC and
             filter. """
-            uri = f'station/{station_id}/history'
+            uri = 'station/{}/history'.format(station_id)
             if filter is not None:
-                uri = uri + f'/{filter}'
-            uri = uri + f'/last/{amount}'
+                uri = uri + '/{}'.format(filter)
+            uri = uri + '/last/{}'.format(amount)
             if sort is not None:
-                uri = uri + f'/{sort}'
+                uri = uri + '/{}'.format(sort)
             return await self._send('GET', uri)
 
         async def station_transmission_history_between(self, station_id, from_unix_timestamp, to_unix_timestamp,
                                                        filter=None, sort=None):
             """Read transmission history for specific time period. Optionally you can also sort them ASC or DESC and
             filter. """
-            uri = f'station/{station_id}/history'
+            uri = 'station/{}/history'.format(station_id)
             if filter is not None:
-                uri = uri + f'/{filter}'
-            uri = uri + f'/from/{from_unix_timestamp}/to/{to_unix_timestamp}'
+                uri = uri + '/{}'.format(filter)
+            uri = uri + '/from/{}/to/{}'.format(from_unix_timestamp, to_unix_timestamp)
             if sort is not None:
-                uri = uri + f'/{sort}'
+                uri = uri + '/{}'.format(sort)
             return await self._send('GET', uri)
 
         async def station_licenses(self, station_id):
             """Retrieve all the licenses of your device. They are separated by the service (models, forecast ...)."""
-            return await self._send('GET', f'station/{station_id}/licenses')
+            return await self._send('GET', 'station/{}/licenses'.format(station_id))
 
     class Data(ClientRoute):
 
         async def min_max_date_of_data(self, station_id):
             """Retrieve min and max date of device data availability."""
-            return await self._send('GET', f'data/{station_id}')
+            return await self._send('GET', 'data/{}'.format(station_id))
 
         async def get_last_data(self, station_id, data_group, time_period, format=None):
             """Retrieve last data that device sends."""
             if format is not None:
-                uri = f'data/{format}/{station_id}/{data_group}/last/{time_period}'
+                uri = 'data/{}/{}/{}/last/{}'.format(format, station_id, data_group, time_period)
             else:
-                uri = f'data/{station_id}/{data_group}/last/{time_period}'
+                uri = 'data/{}/{}/last/{}'.format(station_id, data_group, time_period)
             return await self._send('GET', uri)
 
         async def get_data_between_period(self, station_id, data_group, from_unix_timestamp, to_unix_timestamp=None,
                                           format=None):
             """Retrieve data between specified time periods."""
             if format is not None:
-                uri = f'data/{format}/{station_id}/{data_group}/from/{from_unix_timestamp}'
+                uri = 'data/{}/{}/{}/from/{}'.format(format, station_id, data_group, from_unix_timestamp)
             else:
-                uri = f'data/{station_id}/{data_group}/from/{from_unix_timestamp}'
+                uri = 'data/{}/{}/from/{}'.format(station_id, data_group, from_unix_timestamp)
             if to_unix_timestamp is not None:
-                uri += f'/to/{to_unix_timestamp}'
+                uri += '/to/{}'.format(to_unix_timestamp)
             return await self._send('GET', uri)
 
         async def get_last_data_customized(self, station_id, data_group, time_period, custom_data, format=None):
             """Retrieve last data that device sends in your liking."""
             if format is not None:
-                uri = f'data/{format}/{station_id}/{data_group}/last/{time_period}'
+                uri = 'data/{}/{}/{}/last/{}'.format(format, station_id, data_group, time_period)
             else:
-                uri = f'data/{station_id}/{data_group}/last/{time_period}'
+                uri = 'data/{}/{}/last/{}'.format(station_id, data_group, time_period)
             return await self._send('POST', uri, custom_data)
 
         async def get_data_between_period_customized(self, station_id, data_group, from_unix_timestamp, custom_data,
                                                      to_unix_timestamp=None, format=None):
             """Retrieve data between specified time periods in your liking."""
             if format is not None:
-                uri = f'data/{format}/{station_id}/{data_group}/from/{from_unix_timestamp}'
+                uri = 'data/{}/{}/{}/from/{}'.format(format, station_id, data_group, from_unix_timestamp)
             else:
-                uri = f'data/{station_id}/{data_group}/from/{from_unix_timestamp}'
+                uri = 'data/{}/{}/from/{}'.format(station_id, data_group, from_unix_timestamp)
             if to_unix_timestamp is not None:
-                uri += f'/to/{to_unix_timestamp}'
+                uri += '/to/{}'.format(to_unix_timestamp)
             return await self._send('POST', uri, custom_data)
 
     class Forecast(ClientRoute):
 
         async def get_forecast_data(self, station_id, forecast_option):
             """Retrieving forecast from your device."""
-            return await self._send('GET', f'forecast/{station_id}/{forecast_option}')
+            return await self._send('GET', 'forecast/{}/{}'.format(station_id, forecast_option))
 
         async def get_forecast_image(self, station_id, forecast_option):
             """Getting forecast image."""
-            return await self._send('GET', f'forecast/{station_id}/{forecast_option}')
+            return await self._send('GET', 'forecast/{}/{}'.format(station_id, forecast_option))
 
     class Disease(ClientRoute):
 
         async def get_last_eto(self, station_id, time_period):
             """Retrieve last Evapotranspiration."""
-            return await self._send('GET', f'disease/{station_id}/last/{time_period}')
+            return await self._send('GET', 'disease/{}/last/{}'.format(station_id, time_period))
 
         async def get_eto_between(self, station_id, from_unix_timestamp, to_unix_timestamp=None):
             """Retrieve Evapotranspiration data between specified time periods."""
-            uri = f'disease/{station_id}/from/{from_unix_timestamp}'
+            uri = 'disease/{}/from/{}'.format(station_id, from_unix_timestamp)
             if to_unix_timestamp is not None:
-                uri += f'/to/{to_unix_timestamp}'
+                uri += '/to/{}'.format(to_unix_timestamp)
             return await self._send('GET', uri)
 
         async def get_last_disease(self, station_id, time_period, disease_data):
             """Retrieve last disease model data or calculation."""
-            return await self._send('POST', f'disease/{station_id}/last/{time_period}', disease_data)
+            return await self._send('POST', 'disease/{}/last/{}'.format(station_id, time_period), disease_data)
 
         async def get_disease_between(self, station_id, from_unix_timestamp, disease_data, to_unix_timestamp=None):
             """Retrieve disease model data or calculation between specified time periods."""
-            uri = f'disease/{station_id}/from/{from_unix_timestamp}'
+            uri = 'disease/{}/from/{}'.format(station_id, from_unix_timestamp)
             if to_unix_timestamp is not None:
-                uri += f'/to/{to_unix_timestamp}'
+                uri += '/to/{}'.format(to_unix_timestamp)
             return await self._send('POST', uri, disease_data)
 
     class Dev(ClientRoute):
@@ -278,102 +278,102 @@ class ApiClient:
 
         async def application_users(self, app_id):
             """Reading list users in the specified application."""
-            return await self._send('GET', f'dev/users/{app_id}')
+            return await self._send('GET', 'dev/users/{}'.format(app_id))
 
         async def application_stations(self, app_id):
             """Reading list of station in the Application."""
-            return await self._send('GET', f'dev/stations/{app_id}')
+            return await self._send('GET', 'dev/stations/{}'.format(app_id))
 
         async def user_stations(self, user_id):
             """Reading list of station in the Application."""
-            return await self._send('GET', f'dev/user/{user_id}/stations')
+            return await self._send('GET', 'dev/user/{}/stations'.format(user_id))
 
         async def add_station_to_user(self, username, station_id, station_key, station_data):
             """Adding station to user account that belongs to your application."""
-            return await self._send('POST', f'dev/user/{username}/{station_id}/{station_key}', station_data)
+            return await self._send('POST', 'dev/user/{}/{}/{}'.format(username, station_id, station_key), station_data)
 
         async def remove_station_from_user(self, username, station_id):
             """Removing station from account that belongs to your application."""
-            return await self._send('DELETE', f'dev/user/{username}/{station_id}')
+            return await self._send('DELETE', 'dev/user/{}/{}'.format(username, station_id))
 
         async def register_user_to_application(self, app_id, user_data):
             """Register a new user to your application."""
-            return await self._send('POST', f'dev/user/{app_id}', user_data)
+            return await self._send('POST', 'dev/user/{}'.format(app_id), user_data)
 
         async def activate_registered_user_account(self, activation_key):
             """Activate registered user account."""
-            return await self._send('GET', f'dev/user/activate/{activation_key}')
+            return await self._send('GET', 'dev/user/activate/{}'.format(activation_key))
 
         async def new_password_request(self, app_id, password_data):
             """Requesting application to change password of a user that belongs to your application."""
-            return await self._send('POST', f'dev/user/{app_id}/password-reset', password_data)
+            return await self._send('POST', 'dev/user/{}/password-reset'.format(app_id), password_data)
 
         async def setting_new_password(self, app_id, password_key, password_data):
             """Changing password of user account."""
-            return await self._send('POST', f'dev/user/{app_id}/password-update/{password_key}', password_data)
+            return await self._send('POST', 'dev/user/{}/password-update/{}'.format(app_id, password_key), password_data)
 
     class Chart(ClientRoute):
 
         async def charting_last_data(self, station_id, data_group, time_period, type=None):
             """Retrieve chart from last data that device sends."""
-            if type:
-                uri = f'/chart/{type}/{station_id}/{data_group}/last/{time_period}'
+            if type is not None:
+                uri = 'chart/{}/{}/{}/last/{}'.format(type, station_id, data_group, time_period)
             else:
-                uri = f'/chart/{station_id}/{data_group}/last/{time_period}'
+                uri = 'chart/{}/{}/last/{}'.format(station_id, data_group, time_period)
             return await self._send('GET', uri)
 
         async def charting_period(self, station_id, data_group, from_unix_timestamp, to_unix_timestamp=None, type=None):
             """Charting data between specified time periods."""
-            if type:
-                uri = f'/chart/{type}/{station_id}/{data_group}/from/{from_unix_timestamp}'
+            if type is not None:
+                uri = 'chart/{}/{}/{}/from/{}'.format(type, station_id, data_group, from_unix_timestamp)
             else:
-                uri = f'/chart/{station_id}/{data_group}/from/{from_unix_timestamp}'
-            if to_unix_timestamp:
-                uri += f'/to/{to_unix_timestamp}'
+                uri = 'chart/{}/{}/from/{}'.format(station_id, data_group, from_unix_timestamp)
+            if to_unix_timestamp is not None:
+                uri += '/to/{}'.format(to_unix_timestamp)
             return await self._send('GET', uri)
 
         async def charting_last_data_customized(self, station_id, data_group, time_period, custom_data, type=None):
             """Retrieve customized chart from last data that device sends."""
-            if type:
-                uri = f'/chart/{type}/{station_id}/{data_group}/last/{time_period}'
+            if type is not None:
+                uri = 'chart/{}/{}/{}/last/{}'.format(type, station_id, data_group, time_period)
             else:
-                uri = f'/chart/{station_id}/{data_group}/last/{time_period}'
+                uri = 'chart/{}/{}/last/{}'.format(station_id, data_group, time_period)
             return await self._send('POST', uri, custom_data)
 
         async def charting_period_data_customized(self, station_id, data_group, from_unix_timestamp, custom_data,
                                                   to_unix_timestamp=None, type=None):
             """Charting customized data between specified time periods."""
-            if type:
-                uri = f'/chart/{type}/{station_id}/{data_group}/from/{from_unix_timestamp}'
+            if type is not None:
+                uri = 'chart/{}/{}/{}/from/{}'.format(type, station_id, data_group, from_unix_timestamp)
             else:
-                uri = f'/chart/{station_id}/{data_group}/from/{from_unix_timestamp}'
-            if to_unix_timestamp:
-                uri += f'/to/{to_unix_timestamp}'
+                uri = 'chart/{}/{}/from/{}'.format(station_id, data_group, from_unix_timestamp)
+            if to_unix_timestamp is not None:
+                uri += '/to/{}'.format(to_unix_timestamp)
             return await self._send('POST', uri, custom_data)
 
     class Cameras(ClientRoute):
 
         async def min_max_date_of_data(self, station_id):
             """Retrieve min and max date of device data availability."""
-            return await self._send('GET', f'/camera/{station_id}/photos/info')
+            return await self._send('GET', 'camera/{}/photos/info'.format(station_id))
 
         async def get_last_photos(self, station_id, amount, camera=None):
             """Retrieve last data that device sends."""
-            uri = f'/camera/{station_id}/photos/last/{amount}'
-            if camera:
-                uri += f'/{camera}'
+            uri = 'camera/{}/photos/last/{}'.format(station_id, amount)
+            if camera is not None:
+                uri += '/{}'.format(camera)
             return await self._send('GET', uri)
 
         async def get_photos_between_period(self, station_id, from_unix_timestamp=None, to_unix_timestamp=None,
                                             camera=None):
             """Retrieve photos between specified period that device sends."""
-            uri = f'/camera/{station_id}/photos'
-            if from_unix_timestamp:
-                uri += f'/from/{from_unix_timestamp}'
-            if to_unix_timestamp:
-                uri += f'/to/{to_unix_timestamp}'
-            if camera:
-                uri += f'/{camera}'
+            uri = 'camera/{}/photos'.format(station_id)
+            if from_unix_timestamp is not None:
+                uri += '/from/{}'.format(from_unix_timestamp)
+            if to_unix_timestamp is not None:
+                uri += '/to/{}'.format(to_unix_timestamp)
+            if camera is not None:
+                uri += '/{}'.format(camera)
             return await self._send('GET', uri)
 
     def __init__(self, auth):
@@ -468,11 +468,11 @@ class ClientBuilder:
         def _modify_request(self, request_contents):
             date_stamp = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
             request_contents.headers['Date'] = date_stamp
-            msg = f'{request_contents.method}/{request_contents.route}{date_stamp}{self._publicKey}'.encode(
+            msg = '{}/{}{}{}'.format(request_contents.method, request_contents.route, date_stamp, self._publicKey).encode(
                 encoding='utf-8')
             h = HMAC.new(self._privateKey.encode(encoding='utf-8'), msg, SHA256)
             signature = h.hexdigest()
-            request_contents.headers['Authorization'] = f'hmac {self._publicKey}:{signature}'
+            request_contents.headers['Authorization'] = 'hmac {}:{}'.format(self._publicKey, signature)
 
     class OAuth2(_ConnectionBase):
 
@@ -509,7 +509,7 @@ class ClientBuilder:
             self._refresh_token = result['refresh_token']
 
         def _modify_request(self, request_contents):
-            request_contents.headers['Authorization'] = f'Authorization: Bearer {self._access_token}'
+            request_contents.headers['Authorization'] = 'Authorization: Bearer {}'.format(self._access_token)
 
         async def _make_request(self, method, route, body=None):
             if self._access_token is None:
