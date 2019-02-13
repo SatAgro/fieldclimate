@@ -211,8 +211,31 @@ class Model:
         return ret
 
     class _dict(dict):
-        def ignore(self, to_ignore):
+        def ignore(self, *to_ignore):
             return Model._dict({k: self[k] for k in self if k not in to_ignore})
+
+        def rename(self, **to_rename):
+            return Model._dict({
+                to_rename[k] if k in to_rename else k: v for k, v in self.items()
+            })
+
+        def nest(self, **to_nest):
+            ret = Model._dict()
+            key_to_prefix = {}
+            for prefix, keys in to_nest.items():
+                if not isinstance(keys, list):
+                    keys = [keys]
+                for key in keys:
+                    key_to_prefix[key] = prefix
+            for key in self:
+                if key in key_to_prefix:
+                    prefix = key_to_prefix[key]
+                    if prefix not in ret:
+                        ret[prefix] = {}
+                    ret[prefix][key] = self[key]
+                else:
+                    ret[key] = self[key]
+            return ret
 
         def to_datetimes(self, *args):
             # YYYY-MM-DD HH:MM:SS
@@ -254,9 +277,15 @@ class Model:
                     ret[k] = self[k]
             return ret
 
-    def _to_dict(self, *fields):
-        ret = {k: self.__dict__[k] for k in self.__dict__ if k in fields}
+    def _to_dict(self, *fields, **renamed_fields):
+        ret = {
+            **{k: self.__dict__[k] for k in self.__dict__ if k in fields},
+            **{new_k: self.__dict__[k] for k, new_k in renamed_fields.items() if k in self.__dict__}
+        }
         return ret
+
+    class InclusionVeto(Exception):
+        pass
 
     def _models_to_dict(self, **fields):
         ret = {}
@@ -271,16 +300,40 @@ class Model:
                 flatten = False
             try:
                 factory = getattr(self.__dict__[k], factory_name)
-            except AttributeError:
+
+                try:
+                    dicted_field = factory()
+                    if flatten:
+                        ret.update({f'{k}.{kk}': dicted_field[kk] for kk in dicted_field})
+                    else:
+                        ret[k] = dicted_field
+                except Model.InclusionVeto:
+                    pass
+
+            except AttributeError:  # Not including field if it is not what we expect it to be.
                 pass
-            if 'factory' in locals():
-                dicted_field = factory()
-                if flatten:
-                    ret.update({f'{k}.{kk}': dicted_field[kk] for kk in dicted_field})
+        return ret
+
+    def _model_lists_to_dict(self, **fields):
+        ret = {}
+        for field_name in fields:
+            try:
+                field = self.__dict__[field_name]
+                if isinstance(field, list):
+                    ret[field_name] = []
+                    for elt in field:
+                        try:
+                            factory = getattr(elt, fields[field_name])
+                            try:
+                                ret[field_name].append(factory())
+                            except Model.InclusionVeto:
+                                pass
+                        except AttributeError:
+                            pass
                 else:
-                    ret[k] = factory()
-            else:
-                ret[k] = self.__dict__[k]
+                    pass
+            except KeyError:
+                pass
         return ret
 
     def _bind(self, submodels, self_key_attr, self_aggr_attr, self_aggr_type, submodel_key_attr,
@@ -525,24 +578,27 @@ class StationType(_StringModel):
 
 
 # TODO: Can rights be assumed to be a tuple of bools? read=bool write=bool
-# TODO Try to determie the above while reading the documentation to the end
+# Try to determie the above while reading the documentation to the end
 class Station(Model):
     """
-    Model returned by user.get_stations().
+    Model returned by user.get_stations() and station.get().
 
     Fields that directly correspond to the official API documentation are:
     * name - if the server returns a dictionary here, this field will be a Station.Name model
-    * rights
-    * info - if the server returns a dictionary here, this field will be a Station.Info model
-    * dates - if the server returns a dictionary here, this field will be a Station.Dates model
-    * position - if the server returns a dictionary here, this field will be a Station.Position model
-    * config - if the server returns a dictionary here, this field will be a Station.Config model
-    * metadata - if the server returns a dictionary here, this field will be a Station.Metadata model
-    * networking - if the server returns a dictionary here, this field will be a Station.Networking model
+    * rights - only from get methods
+    * info - if the server returns a dictionary here, this field will be a Station.Info model. Only from get methods
+    * dates - if the server returns a dictionary here, this field will be a Station.Dates model. Only from get methods
+    * position - if the server returns a dictionary here, this field will be a Station.Position model.
+    * config - if the server returns a dictionary here, this field will be a Station.Config model.
+    * metadata - if the server returns a dictionary here, this field will be a Station.Metadata model.
+                 Only from get methods
+    * networking - if the server returns a dictionary here, this field will be a Station.Networking model.
+                   Only from get methods
     * warnings - if the server returns a dictionary here, this field will be a Station.Warnings model
-    * flags
+    * flags - only from get methods
     * licenses - if the server returns a dictionary here, this field will be a Station.Licenses model.
-                 However, a Boolean value of False is known to be sometimes returned instead
+                 However, a Boolean value of False is known to be sometimes returned instead.
+                 Only from get methods
 
     In addition, the following undocumented field is known to be sometimes returned by user.get_stations().
     This and other unexpected fields will be present exactly as returned by the server:
@@ -568,6 +624,20 @@ class Station(Model):
                                        warnings=Station.Warnings._from_get_stations,
                                        licenses=Station.Licenses._from_get_stations))
 
+    def to_update(self):
+        """
+        If fine-control over what is sent to station.update() is desireable, this method may be called on this model
+        and the dictionary it returns may be manually modified and then passed to station.update().
+        """
+        return {
+            **self._models_to_dict(
+                name='_to_update',
+                position='_to_update',
+                config={'factory': '_to_update', 'flatten': True},
+                warnings={'factory': '_to_update', 'flatten': True}
+            )
+        }
+
     class Name(Model):
         """
         Fields that directly correspond to the official API documentation are:
@@ -578,6 +648,16 @@ class Station(Model):
         @classmethod
         def _from_get_stations(cls, dict):
             return cls(**dict)
+
+        def _to_update(self):
+            try:
+                ret = self.custom
+            except AttributeError:
+                raise Model.InclusionVeto()
+            if ret:
+                return ret
+            else:
+                raise Model.InclusionVeto()
 
     # TODO: Should max_time be datetime?
     class Info(Model):
@@ -624,11 +704,18 @@ class Station(Model):
         Fields that directly correspond to the official API documentation are:
         * geo - if the server returns a dictionary here, this field will be a Station.Position.Geo model
         * altitude
+        * timezoneCode - only for station.update()
         """
 
         @classmethod
         def _from_get_stations(cls, dict):
             return cls(**dict.to_submodels(geo=Station.Position.Geo._from_get_stations))
+
+        def _to_update(self):
+            return {
+                **self._to_dict('altitude', 'timezoneCode'),
+                **self._models_to_dict(geo='_to_update')
+            }
 
         class Geo(Model):
             """
@@ -640,34 +727,111 @@ class Station(Model):
             def _from_get_stations(cls, dict):
                 return cls(**dict)
 
+            def _to_update(self):
+                return {**self._to_dict('coordinates')}
+
+    # TODO: activity_mode to enum
     class Config(Model):
         """
         Fields that directly correspond to the official API documentation are:
-        * timezone_offset
-        * dst
+        * timezone_offset (will be renamed to 'timezone' when passed to station.update)
+        * dst - only from get methods
         * precision_reduction
-        * scheduler
+        * scheduler - currently ignored in station.update
         * schedulerOld
-        * fixed_transfer_interval
-        * rain_monitor
-        * water_level_monitor
-        * data_interval
+        * fixed_transfer_interval - currently ignored in station.update
+        * monitor - will be a Monitor model
+        * interval - will be an Interval model
         * activity_mode
-        * emergency_sms_number
-        * measuring_interval
-        * logging_interval
-        * x_min_transfer_interval
+        * emergency_sms_number - get methods only
+        * x_min_transfer_interval - get methods only
+        * cam1 and cam2 - will be a Cam model
 
         In addition, the following undocumented fields are known to be sometimes returned by user.get_licenses().
         These and other unexpected fields will be present exactly as returned by the server:
         * scheduler_cv
-        * cam1
-        * cam2
         """
 
         @classmethod
         def _from_get_stations(cls, dict):
-            return cls(**dict)
+            return cls(**dict.
+                       nest(monitor=['rain_monitor', 'water_level_monitor'],  # passed to Monitor
+                            interval=['logging_interval', 'measurement_interval']).  # passed to Interval
+                       to_submodels(monitor=Station.Config.Monitor._from_get_stations,
+                                    interval=Station.Config.Interval._from_get_stations,
+                                    cam1=Station.Config.Cam._from_get_stations,
+                                    cam2=Station.Config.Cam._from_get_stations))
+
+        # TODO: upload.scheduler and upload_transfer_fixed be moved to Upload model and sent here.
+        # However, I don't understand what is the connection between scheduler values returned from the server and those
+        # that need to be sent.
+        # And I also need don't know what exactly should be moved to Upload.
+        # Problem is, moving these to Upload is going to be a breaking change once lib is released.
+        def _to_update(self):
+            return {
+                **self._to_dict('precision_reduction', 'activity_mode', timezone_offset='timezone'),
+                **self._models_to_dict(
+                    monitor={'factory': '_to_update', 'flatten': True},
+                    interval={'factory': '_to_update', 'flatten': True},
+                    cam1={'factory': '_to_update', 'flatten': True},
+                    cam2={'factory': '_to_update', 'flatten': True}
+                )
+            }
+
+        class Monitor(Model):
+            """
+            Fields that directly correspond to the official API documentation are:
+            * water_level
+            * rain
+            """
+
+            @classmethod
+            def _from_get_stations(cls, dict):
+                return cls(**dict.rename(rain_monitor='rain', water_level_monitor='water_level'))
+
+            def _to_update(self):
+                return self._to_dict('water_level', 'rain')
+
+        class Interval(Model):
+            """
+            Fields that directly correspond to the official API documentation are:
+            * logging
+            * measuring
+            """
+
+            @classmethod
+            def _from_get_stations(cls, dict):
+                return cls(**dict.rename(data_interval='data', measurement_interval='measurement'))
+
+            # TODO: tl;dr: It may be required to disallow sending measurement field if its not a dict.
+            # I don't understand this API here!
+            # It wants measuring to be an object with properties whose names are integers?
+            # Should we not send this field if its an integer rather than object? But all sample responses provide
+            # integers here! And also API for GET /station also documents integers in this field!
+            # Even worse, because unless we disallow sending it, a station returned from stations.get
+            # will not be able to be passed to stations.update() w/o modifying this field?
+            def _to_update(self):
+                return self._to_dict('logging', measuring='measurement')
+
+        class Cam(Model):
+            """
+            Fields that directly correspond to the official API documentation are:
+            * active
+            * auto_exposure
+            * brightness_ref
+            * global_gain
+            * integration_time
+            * max_integration_time
+            * square_spots
+            """
+
+            @classmethod
+            def _from_get_stations(cls, dict):
+                return cls(**dict)
+
+            def _to_update(self):
+                return self._to_dict('active', 'auto_exposure', 'brightness_ref', 'global_gain', 'integration_time',
+                                     'max_integration_time', 'square_spots')
 
     class Metadata(Model):
         """
@@ -724,6 +888,12 @@ class Station(Model):
         def _from_get_stations(cls, dict):
             return cls(**dict.to_submodel_lists(sms_numbers=Station.Warnings.SMSNumber._from_get_stations))
 
+        def _to_update(self):
+            return {
+                **self._to_dict('sensors'),
+                **self._model_lists_to_dict(sms_numbers='_to_update')
+            }
+
         class SMSNumber(Model):
             """
             Fields that directly correspond to the official API documentation are:
@@ -735,6 +905,9 @@ class Station(Model):
             @classmethod
             def _from_get_stations(cls, dict):
                 return cls(**dict)
+
+            def _to_update(self):
+                return self._to_dict('num', 'name', 'active')
 
     class Licenses(Model):
         """
@@ -836,8 +1009,8 @@ class DiseaseGroup(Model):
 
 
 # TODO: Honestly, I think we'll have to parse values like settings.period, settings.resolution sooner or later,
-# TODO: And also I'm afraid ignoring the Results and settings.aggregation fields is not appropriate, even though
-# TODO: they're undocumented, they seem to be serving an important purpose
+# And also I'm afraid ignoring the Results and settings.aggregation fields is not appropriate, even though
+# they're undocumented, they seem to be serving an important purpose
 class DiseaseModel(Model):
     """
     Fields that directly correspond to the official API documentation are:
@@ -1069,6 +1242,7 @@ class ApiClient:
         Contains methods corresponding to the /station routes of the official API.
         """
 
+        # TODO: tl;dr: Saner updating of bindings + remove code repetitions
         # Assumption is that a station's device type doesn't change in time... Because otherwise this throws
         # This can be fixed ofc, but what is the appropriate level of paranoia wrt what this server returns?
         # Also this is another point where code may get very repetitive very soon... also will have to fix this
@@ -1097,7 +1271,7 @@ class ApiClient:
                 pass  # type not defined, we were not passed a bound station
             return ret
 
-        async def update(self, station_id, station_data):
+        async def update(self, station_id, station_data=None):
             """
             This method corresponds to the PUT /station/{{STATION-ID}} route of the official API.
             If the first argument is a Station model, the second argument does not have to be provided.
@@ -1108,6 +1282,10 @@ class ApiClient:
                 try:
                     station_id = station_id.name.original
                 except AttributeError:
+                    raise ValueError
+                station_data = station_id
+            else:
+                if station_data is None:
                     raise ValueError
 
             return await self._send('PUT', f'station/{station_id}', station_data)
