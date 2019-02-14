@@ -23,7 +23,7 @@ class ConnectionBase(ABC):
         request = Request(method, route, data, {'Accept': 'application/json'})
         self._modify_request(request)
         result = await self._session.request(method,
-                                             f'{ApiClient.api_uri}/{request.route}',
+                                             '{}/{}'.format(ApiClient.api_uri, request.route),
                                              headers=request.headers,
                                              json=request.data)
         # So that we get None in case of empty server response instead of an exception

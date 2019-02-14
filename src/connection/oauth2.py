@@ -11,7 +11,7 @@ from src.tools import get_credentials
 credentials = get_credentials()
 client_id = credentials['client_id']
 client_secret = credentials['client_secret']
-auth_url = f'https://oauth.fieldclimate.com/authorize?response_type=code&client_id={client_id}&state=xyz'
+auth_url = 'https://oauth.fieldclimate.com/authorize?response_type=code&client_id={}&state=xyz'.format(client_id)
 
 
 class AuthCodeProvider(ABC):
@@ -90,7 +90,7 @@ class OAuth2(ConnectionBase):
         self._refresh_token = response['refresh_token']
 
     def _modify_request(self, request):
-        request.headers['Authorization'] = f'Authorization: Bearer {self._access_token}'
+        request.headers['Authorization'] = 'Authorization: Bearer {}'.format(self._access_token)
 
     async def _make_request(self, method, route, body=None):
         if self._access_token is None:

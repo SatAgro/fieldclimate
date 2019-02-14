@@ -11,6 +11,11 @@ class Request:
         self.headers = headers
         self.data = data
 
+    def __eq__(self, other):
+        return self.__dict__ == other.__dict__
+
+
+
 
 class ResponseException(Exception):
     def __init__(self, code, response):

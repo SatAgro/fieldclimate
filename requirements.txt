@@ -1,3 +1,5 @@
 aiohttp
 pycryptodome
 pyyaml
+freezegun
+parameterized
