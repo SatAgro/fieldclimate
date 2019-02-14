@@ -5,8 +5,8 @@ from abc import ABC, abstractmethod
 from aiohttp import web
 
 from src.connection.base import ConnectionBase
-from src.http.http import ResponseException
-from src.tools.tools import get_credentials
+from src.http import ResponseException
+from src.tools import get_credentials
 
 credentials = get_credentials()
 client_id = credentials['client_id']

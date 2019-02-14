@@ -2,8 +2,8 @@ from abc import ABC, abstractmethod
 
 import aiohttp
 
-from src.api.api import ApiClient
-from src.http.http import Response, Request, ResponseException
+from src.api import ApiClient
+from src.http import Response, Request, ResponseException
 
 
 class ConnectionBase(ABC):

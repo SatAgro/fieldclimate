@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 
-from src.api.api import ApiClient
+from src.api import ApiClient
 from src.connection.base import ConnectionBase
 
 
