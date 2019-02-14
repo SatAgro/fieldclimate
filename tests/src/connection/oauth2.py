@@ -19,10 +19,8 @@ class AsyncMock(MagicMock):
 class TestHMAC(unittest.TestCase):
     public_key = '252f10c83610ebca1a059c0bae8255eba2f95be4d1d7bcfa89d7248a82d9f111'
     private_key = 'ce3573a8768586faddc9bb8679749920e34af1e7d0f26d6a7c61fdf298080866'
+    hmac = HMAC(public_key, private_key)
 
-    def setUp(self):
-        self.hmac = HMAC(TestHMAC.public_key, TestHMAC.private_key)
-        
     @parameterized.expand([
         ('2012-01-14 12:00:01',
          Request('GET', '', None, {}),
@@ -51,7 +49,7 @@ class TestHMAC(unittest.TestCase):
     ])
     def test_modify_request(self, date_stamp, in_request, out_request):
         with freeze_time(date_stamp):
-            self.hmac._modify_request(in_request)
+            TestHMAC.hmac._modify_request(in_request)
             self.assertEqual(in_request, out_request)
 
     @parameterized.expand([
@@ -78,8 +76,8 @@ class TestHMAC(unittest.TestCase):
             returned.status = 200
             returned.json = AsyncMock(return_value={})
             mock = AsyncMock(return_value=returned)
-            self.hmac._session = SimpleNamespace()
-            self.hmac._session.request = mock
+            TestHMAC.hmac._session = SimpleNamespace()
+            TestHMAC.hmac._session.request = mock
             loop = asyncio.get_event_loop()
-            loop.run_until_complete(self.hmac._make_request(method, route, data))
+            loop.run_until_complete(TestHMAC.hmac._make_request(method, route, data))
             mock.assert_called_once_with(method, '{}/{}'.format(ApiClient.api_uri, route), json=data, headers=headers)
