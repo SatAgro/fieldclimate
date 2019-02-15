@@ -81,7 +81,7 @@ class OAuth2(ConnectionBase):
                 'grant_type': 'authorization_code',
                 'code': await self._auth_code_provider.get_auth_code()
             }
-        result = await self._session.post('https://oauth.fieldclimate.com/token', data=params)
+        result = await self._session.request('POST', 'https://oauth.fieldclimate.com/token', data=params)
         response = await result.json(
             content_type=None)
         if result.status >= 300:
@@ -92,15 +92,15 @@ class OAuth2(ConnectionBase):
     def _modify_request(self, request):
         request.headers['Authorization'] = 'Authorization: Bearer {}'.format(self._access_token)
 
-    async def _make_request(self, method, route, body=None):
+    async def _make_request(self, method, route, data=None):
         if self._access_token is None:
             await self._get_token()
         try:
-            response = await super()._make_request(method, route, body)
+            response = await super()._make_request(method, route, data)
         except ResponseException as e:
             if e.code == 401:
                 await self._get_token()
-                response = await super()._make_request(method, route, body)
+                response = await super()._make_request(method, route, data)
             else:
                 raise
         return response
