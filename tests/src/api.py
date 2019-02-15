@@ -1,7 +1,8 @@
 import asyncio
 import unittest
 
-from WeatherStationClient import ClientBuilder, ApiClient
+from src.api import ApiClient
+from src.connection.base import ConnectionBase
 
 
 class MockSession:
@@ -20,7 +21,7 @@ class MockSession:
         return MockSession.MockResponse(method, url, json, headers)
 
 
-class MockConnection(ClientBuilder._ConnectionBase):
+class MockConnection(ConnectionBase):
     async def __aenter__(self):
         self._session = MockSession()
         return ApiClient(self)
@@ -28,7 +29,7 @@ class MockConnection(ClientBuilder._ConnectionBase):
     async def __aexit__(self, exc_type, exc_value, traceback):
         pass
 
-    def _modify_request(self, requestContents):
+    def _modify_request(self, request):
         pass
 
 
@@ -40,7 +41,7 @@ class TestApiCalls(unittest.TestCase):
 
     def assertCall(self, mock_response, expected_method, expected_route, expected_body=None):
         self.assertEqual(mock_response['method'], expected_method)
-        self.assertEqual(mock_response['url'], '{}/{}'.format(ApiClient.apiURI, expected_route))
+        self.assertEqual(mock_response['url'], '{}/{}'.format(ApiClient.api_uri, expected_route))
         self.assertEqual(mock_response['body'], expected_body)
         self.assertEqual(mock_response['headers'], {'Accept': 'application/json'})
 

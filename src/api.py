@@ -1,36 +1,5 @@
-from abc import ABC, abstractmethod
-from datetime import datetime
-
-import aiohttp
-import pkg_resources
-import yaml
-from Crypto.Hash import HMAC
-from Crypto.Hash import SHA256
-
-
-def get_credentials():
-    return yaml.load(pkg_resources.resource_stream(__name__, 'credentials.yml'))
-
-
-class ApiResponseException(Exception):
-    def __init__(self, code, response):
-        self.code = code
-        # Better safe than sorry? If the server returns a non-empty response with code >= 300 we should preserve it
-        self.response = response
-
-
-class ApiAuthorizationException(ApiResponseException):
-    pass
-
-
-class ApiResponse:
-    def __init__(self, code, response):
-        self.code = code
-        self.response = response
-
-
 class ApiClient:
-    apiURI = 'https://api.fieldclimate.com/v1'
+    api_uri = 'https://api.fieldclimate.com/v1'
 
     class ClientRoute:
         def __init__(self, client):
@@ -145,7 +114,7 @@ class ApiClient:
 
         async def remove_station_from_account(self, station_id, station_key):
             """Removing station from current account. The keys come with device itself."""
-            return await self._send('DELETE','station/{}/{}'.format(station_id, station_key))
+            return await self._send('DELETE', 'station/{}/{}'.format(station_id, station_key))
 
         async def stations_in_proximity(self, station_id, radius):
             """Find stations in proximity of specified station."""
@@ -310,7 +279,8 @@ class ApiClient:
 
         async def setting_new_password(self, app_id, password_key, password_data):
             """Changing password of user account."""
-            return await self._send('POST', 'dev/user/{}/password-update/{}'.format(app_id, password_key), password_data)
+            return await self._send('POST', 'dev/user/{}/password-update/{}'.format(app_id, password_key),
+                                    password_data)
 
     class Chart(ClientRoute):
 
@@ -418,108 +388,3 @@ class ApiClient:
     @property
     def cameras(self):
         return ApiClient.Cameras(self)
-
-
-class ClientBuilder:
-    class _RequestContents:
-        def __init__(self, method, route, body, headers):
-            self.method = method
-            self.route = route
-            self.headers = headers
-            self.body = body
-
-    class _ConnectionBase(ABC):
-
-        async def __aenter__(self):
-            self._session = aiohttp.ClientSession()
-            return ApiClient(self)
-
-        async def __aexit__(self, exc_type, exc_value, traceback):
-            await self._session.close()
-
-        @abstractmethod
-        def _modify_request(self, request_contents):
-            pass
-
-        async def _make_request(self, method, route, body=None):
-            request_contents = ClientBuilder._RequestContents(method, route, body, {'Accept': 'application/json'})
-            self._modify_request(request_contents)
-
-            args = [ApiClient.apiURI + '/' + request_contents.route]
-            kwargs = {'headers': request_contents.headers}
-            if request_contents.body is not None:
-                kwargs['json'] = body
-
-            result = await self._session.request(method, *args, **kwargs)
-            response = await result.json(
-                content_type=None)  # So that we get None in case of empty server response instead of an exception
-
-            if result.status >= 300:
-                raise ApiResponseException(result.status, response)
-            else:
-                return ApiResponse(result.status, response)
-
-    class HMAC(_ConnectionBase):
-
-        def __init__(self, public_key, private_key):
-            self._publicKey = public_key
-            self._privateKey = private_key
-
-        def _modify_request(self, request_contents):
-            date_stamp = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
-            request_contents.headers['Date'] = date_stamp
-            msg = '{}/{}{}{}'.format(request_contents.method, request_contents.route, date_stamp, self._publicKey).encode(
-                encoding='utf-8')
-            h = HMAC.new(self._privateKey.encode(encoding='utf-8'), msg, SHA256)
-            signature = h.hexdigest()
-            request_contents.headers['Authorization'] = 'hmac {}:{}'.format(self._publicKey, signature)
-
-    class OAuth2(_ConnectionBase):
-
-        credentials = get_credentials()
-        client_id = credentials['client_id']
-        client_secret = credentials['client_secret']
-
-        def __init__(self, authorization_code):
-            self._authorization_code = authorization_code
-            self._access_token = None
-            self._refresh_token = None
-
-        async def _get_token(self):
-            if self._refresh_token is not None:
-                params = {
-                    'client_id': self.client_id,
-                    'client_secret': self.client_secret,
-                    'grant_type': 'refresh_token',
-                    'refresh_token': self._refresh_token
-                }
-            else:
-                params = {
-                    'client_id': self.client_id,
-                    'client_secret': self.client_secret,
-                    'grant_type': 'authorization_code',
-                    'code': self._authorization_code
-                }
-            response = await self._session.post('https://oauth.fieldclimate.com/token', data=params)
-            result = await response.json(
-                content_type=None)
-            if response.status >= 300:
-                raise ApiAuthorizationException(response.status, result)
-            self._access_token = result['access_token']
-            self._refresh_token = result['refresh_token']
-
-        def _modify_request(self, request_contents):
-            request_contents.headers['Authorization'] = 'Authorization: Bearer {}'.format(self._access_token)
-
-        async def _make_request(self, method, route, body=None):
-            if self._access_token is None:
-                await self._get_token()
-            try:
-                response = await super()._make_request(method, route, body)
-            except ApiResponseException as e:
-                if e.code == 401:
-                    await self._get_token()
-                    response = await super()._make_request(method, route, body)
-                else:
-                    raise
-            return response
