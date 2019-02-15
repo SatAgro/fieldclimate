@@ -9,26 +9,38 @@ from Crypto.Hash import HMAC
 from Crypto.Hash import SHA256
 
 
-def get_nested_attr(obj, attr_name):
-    attrs = attr_name.split('.')
-    for attr in attrs:
-        obj = getattr(obj, attr)
-    return obj
+def get_nested_item(dictionary, item_names):
+    if not isinstance(item_names, list):
+        item_names = [item_names]
+    for item_name in item_names:
+        dictionary = dictionary[item_name]
+    return dictionary
 
 
-def has_nested_attr(obj, attr_name):
+def set_nested_item(dictionary, item_names, val):
+    if not isinstance(item_names, list):
+        item_names = [item_names]
+    path = item_names[:-1]
+    dictionary = get_nested_item(dictionary, path) if path else dictionary
+    item_name = item_names[-1]
+    dictionary[item_name] = val
+
+
+def del_nested_item(dictionary, item_names):
+    if not isinstance(item_names, list):
+        item_names = [item_names]
+    path = item_names[:-1]
+    dictionary = get_nested_item(dictionary, path) if path else dictionary
+    item_name = item_names[-1]
+    del dictionary[item_name]
+
+
+def contains_nested_item(dictionary, item_names):
     try:
-        get_nested_attr(obj, attr_name)
+        get_nested_item(dictionary, item_names)
         return True
-    except AttributeError:
+    except KeyError:
         return False
-
-
-def set_nested_attr(obj, attr_name, val):
-    path = '.'.join(attr_name.split('.')[:-1])
-    obj = get_nested_attr(obj, path) if path else obj
-    attr_name = attr_name.split('.')[-1]
-    setattr(obj, attr_name, val)
 
 
 def get_credentials():
@@ -43,27 +55,27 @@ class ApiResponseException(Exception):
 
     @classmethod
     def _get_specific(cls, code, response):
-        specific_type = ApiResponseExceptionBadRequest if code == 400\
-                   else ApiResponseExceptionUnauthorized if code == 401\
-                   else ApiResponseExceptionForbidden if code == 403\
-                   else ApiResponseExceptionConflict if code == 409\
+        specific_type = ResponseBadRequest if code == 400\
+                   else ResponseUnauthorized if code == 401\
+                   else ResponseForbidden if code == 403\
+                   else ResponseConflict if code == 409\
                    else cls
         return specific_type(code, response)
 
 
-class ApiResponseExceptionUnauthorized:
+class ResponseUnauthorized(ApiResponseException):
     pass
 
 
-class ApiResponseExceptionBadRequest:
+class ResponseBadRequest(ApiResponseException):
     pass
 
 
-class ApiResponseExceptionConflict(ApiResponseException):
+class ResponseConflict(ApiResponseException):
     pass
 
 
-class ApiResponseExceptionForbidden(ApiResponseException):
+class ResponseForbidden(ApiResponseException):
     pass
 
 
@@ -84,6 +96,14 @@ class ApiResponse:
         return specific_type(code, response)
 
 
+class ResponseOK(ApiResponse):
+    pass
+
+
+class ResponseNoContent(ApiResponse):
+    pass
+
+
 class ApiBoolResponse(ApiResponse):
     @classmethod
     def _from_response(cls, response):
@@ -94,14 +114,6 @@ class ApiBoolResponse(ApiResponse):
             def __bool__(self):
                 return self._value
         return _BoolResponse
-
-
-class ResponseOK(ApiResponse):
-    pass
-
-
-class ResponseNoContent(ApiResponse):
-    pass
 
 
 class ListResponse(list):
@@ -124,26 +136,26 @@ class DictResponse(dict):
         return _DictResponse
 
 
-class Model:
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
+class Model(dict):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def __eq__(self, other):
         if not (isinstance(self, type(other)) or isinstance(other, type(self))):
             return False
         try:
-            self_key = get_nested_attr(self, self._key)
-            other_key = get_nested_attr(other, other._key)
+            self_key = get_nested_item(self, self._key)
+            other_key = get_nested_item(other, other._key)
             return self_key == other_key
-        except AttributeError:
+        except KeyError:
             # Key comparison not defined or server did not return crucial fields: falling back to identity comparison
             return self is other
 
     @classmethod
     def _from_response(cls, response):
         class _Model(cls, type(response)):
-            def __init__(self, **kwargs):
-                cls.__init__(self, **kwargs)
+            def __init__(self, *args, **kwargs):
+                cls.__init__(self, *args, **kwargs)
                 type(response).__init__(self, response.code, response.response)
 
         return _Model
@@ -152,15 +164,15 @@ class Model:
     def _to_factory(raw, factory_info):
         try:
             factory = factory_info['factory']
-        except (AttributeError, KeyError, TypeError):
+        except TypeError:
             factory = factory_info
         try:
             factory_args = factory_info['args']
-        except (AttributeError, KeyError, TypeError):
+        except (KeyError, TypeError):
             factory_args = []
         try:
             factory_kwargs = factory_info['kwargs']
-        except (AttributeError, KeyError, TypeError):
+        except (KeyError, TypeError):
             factory_kwargs = {}
         try:
             # Seems ugly and unpythonic for me. I'm sorry. However, I'm out of ideas how to otherwise avoid repeating
@@ -182,15 +194,24 @@ class Model:
             return l
         try:
             pass_index = factory_info['pass_index']
-        except (AttributeError, KeyError, TypeError):
+        except (KeyError, TypeError):
             pass_index = False
-        if pass_index and 'kwargs' not in factory_info:
+        try:
+            pass_list = factory_info['pass_list']
+        except (KeyError, TypeError):
+            pass_list = False
+        if (pass_index or pass_list) and 'kwargs' not in factory_info:
             factory_info['kwargs'] = {}
         ret = []
         for i, elt in enumerate(l):
             if pass_index:  # if pass_index is True then factory_info must be in its more detailed form
                 factory_info['kwargs']['i'] = i
-            ret.append(Model._to_factory(elt, factory_info))
+            if pass_list:
+                factory_info['kwargs']['l'] = ret
+            try:
+                ret.append(Model._to_factory(elt, factory_info))
+            except Model._InclusionVeto:
+                pass
         return ret
 
     @staticmethod
@@ -199,15 +220,24 @@ class Model:
             return d
         try:
             pass_index = factory_info['pass_index']
-        except (AttributeError, KeyError, TypeError):
+        except (KeyError, TypeError):
             pass_index = False
-        if pass_index and 'kwargs' not in factory_info:
+        try:
+            pass_list = factory_info['pass_list']
+        except (KeyError, TypeError):
+            pass_list = False
+        if (pass_index or pass_list) and 'kwargs' not in factory_info:
             factory_info['kwargs'] = {}
         ret = {}
         for key, elt in d.items():
             if pass_index:  # if pass_index is True then factory_info must be in its more detailed form
                 factory_info['kwargs']['i'] = key
-            ret[key] = Model._to_factory(d[key], factory_info)
+            if pass_list:
+                factory_info['kwargs']['l'] = ret
+            try:
+                ret[key] = Model._to_factory(d[key], factory_info)
+            except Model._InclusionVeto:
+                pass
         return ret
 
     class _dict(dict):
@@ -279,17 +309,17 @@ class Model:
 
     def _to_dict(self, *fields, **renamed_fields):
         ret = {
-            **{k: self.__dict__[k] for k in self.__dict__ if k in fields},
-            **{new_k: self.__dict__[k] for k, new_k in renamed_fields.items() if k in self.__dict__}
+            **{k: self[k] for k in self if k in fields},
+            **{new_k: self[k] for k, new_k in renamed_fields.items() if k in self}
         }
         return ret
 
-    class InclusionVeto(Exception):
+    class _InclusionVeto(Exception):
         pass
 
     def _models_to_dict(self, **fields):
         ret = {}
-        for k in [k for k in self.__dict__ if k in fields]:
+        for k in [k for k in self if k in fields]:
             try:
                 factory_name = fields[k]['factory']
             except (AttributeError, KeyError, TypeError):
@@ -299,7 +329,7 @@ class Model:
             except (AttributeError, KeyError, TypeError):
                 flatten = False
             try:
-                factory = getattr(self.__dict__[k], factory_name)
+                factory = getattr(self[k], factory_name)
 
                 try:
                     dicted_field = factory()
@@ -318,7 +348,7 @@ class Model:
         ret = {}
         for field_name in fields:
             try:
-                field = self.__dict__[field_name]
+                field = self[field_name]
                 if isinstance(field, list):
                     ret[field_name] = []
                     for elt in field:
@@ -336,16 +366,37 @@ class Model:
                 pass
         return ret
 
-    def _bind(self, submodels, self_key_attr, self_aggr_attr, self_aggr_type, submodel_key_attr,
-              submodel_ref_attr=None, submodel_id_attr=None):
+    def _unbind(self, submodel, self_aggr_item, submodel_ref_item):
+        try:
+            aggr = get_nested_item(self, self_aggr_item)
+        except KeyError:
+            return
+        if isinstance(aggr, list) and submodel in aggr:
+            try:
+                aggr.remove(submodel)
+            except ValueError:
+                pass
+        elif isinstance(aggr, dict):
+            try:
+                key = get_nested_item(submodel, submodel._key)
+            except KeyError:
+                return
+            if key in aggr:
+                del aggr[key]
+        del_nested_item(submodel, submodel_ref_item)
 
-        if submodel_ref_attr is None:
-            submodel_ref_attr = submodel_key_attr
+    def _bind(self, submodels, self_aggr_item, self_aggr_type, submodel_key_item,
+              submodel_ref_item=None):
+
+        self_key_item = self._key
+
+        if submodel_ref_item is None:
+            submodel_ref_item = submodel_key_item
 
         def single_submodel(submodel, _raise):
             try:
-                submodel_key = get_nested_attr(submodel, submodel_key_attr)
-                self_key = get_nested_attr(self, self_key_attr)
+                submodel_key = get_nested_item(submodel, submodel_key_item)
+                self_key = get_nested_item(self, self_key_item)
 
                 # 5 and '5' must compare as equal
                 if isinstance(submodel_key, int) or isinstance(submodel_key, float):
@@ -355,18 +406,18 @@ class Model:
 
                 def is_already_bound():
                     try:
-                        target = get_nested_attr(submodel, submodel_ref_attr)
-                        return target is self
-                    except AttributeError:
+                        target = get_nested_item(submodel, submodel_ref_item)
+                        return target == self
+                    except KeyError:
                         return False
 
                 def keys_match():
                     return self_key == submodel_key
 
                 def add_to_aggr():
-                    if not has_nested_attr(self, self_aggr_attr):
-                        set_nested_attr(self, self_aggr_attr, self_aggr_type())
-                    aggr = getattr(self, self_aggr_attr)
+                    if not contains_nested_item(self, self_aggr_item):
+                        set_nested_item(self, self_aggr_item, self_aggr_type())
+                    aggr = get_nested_item(self, self_aggr_item)
                     if self_aggr_type == list:
                         # Rationale: (1) User calls user.get_stations and binds them to types;
                         # (2) user calls station.update and then station.get();
@@ -377,23 +428,24 @@ class Model:
                         except ValueError:
                             aggr.append(submodel)
                     elif self_aggr_type == dict:
-                        submodel_id = get_nested_attr(submodel, submodel_id_attr)
+                        submodel_id_item = submodel._key
+                        submodel_id = get_nested_item(submodel, submodel_id_item)
                         aggr[submodel_id] = submodel
-                    set_nested_attr(submodel, submodel_ref_attr, self)
+                    set_nested_item(submodel, submodel_ref_item, self)
 
                 if is_already_bound() or keys_match():
                     add_to_aggr()
                 else:
                     if _raise:
                         raise ValueError()
-            except AttributeError:  # prepare for the weird case when the server did not return name or group fields
+            except KeyError:  # prepare for the weird case when the server did not return name or group fields
                 if _raise:
                     raise ValueError()
 
         if isinstance(submodels, list):
             for submodel in submodels:
                 single_submodel(submodel, False)
-        elif isinstance(submodels, dict):
+        elif isinstance(submodels, dict) and not isinstance(submodels, Model):
             for submodel_id, submodel in submodels.items():
                 single_submodel(submodel, False)
         else:
@@ -555,8 +607,11 @@ class StationType(_StringModel):
     _key = '_id'
 
     @classmethod
-    def _from_get_types(cls, string, i):
-        return cls(_string=string, _id=i)
+    def _from_get_types(cls, string, i, l=None):
+        if list is None:
+            return cls(_string=string, _id=i)
+        else:
+            return cls(_string=string, _id=i, _others=l)
 
     _expected_types = {'_from_get_types': str}
 
@@ -573,8 +628,19 @@ class StationType(_StringModel):
                 station_type.bind(stations)
         """
 
-        self._bind(stations, self_key_attr='_id', self_aggr_attr='stations', self_aggr_type=list,
-                   submodel_key_attr='info.device_id', submodel_ref_attr='info.type')
+        self._bind(stations, self_aggr_item='stations', self_aggr_type=list,
+                   submodel_key_item=['info', 'device_id'], submodel_ref_item=['info', 'type'])
+
+    def _unbind(self, station):
+        super()._unbind(station, self_aggr_item='stations', submodel_ref_item=['info', 'type'])
+
+    def _force_bind(self, station):
+        try:
+            self.bind(station)
+        except ValueError:
+            if '_others' in self:
+                for station_type in self['_others'].values():
+                    station_type.bind([station])
 
 
 # TODO: Can rights be assumed to be a tuple of bools? read=bool write=bool
@@ -586,18 +652,16 @@ class Station(Model):
     Fields that directly correspond to the official API documentation are:
     * name - if the server returns a dictionary here, this field will be a Station.Name model
     * rights - only from get methods
-    * info - if the server returns a dictionary here, this field will be a Station.Info model. Only from get methods
+    * info - only from get methods
     * dates - if the server returns a dictionary here, this field will be a Station.Dates model. Only from get methods
     * position - if the server returns a dictionary here, this field will be a Station.Position model.
     * config - if the server returns a dictionary here, this field will be a Station.Config model.
-    * metadata - if the server returns a dictionary here, this field will be a Station.Metadata model.
-                 Only from get methods
+    * metadata - Only from get methods
     * networking - if the server returns a dictionary here, this field will be a Station.Networking model.
                    Only from get methods
     * warnings - if the server returns a dictionary here, this field will be a Station.Warnings model
     * flags - only from get methods
-    * licenses - if the server returns a dictionary here, this field will be a Station.Licenses model.
-                 However, a Boolean value of False is known to be sometimes returned instead.
+    * licenses - a Boolean value of False is known to be sometimes returned instead of the documented dictionary.
                  Only from get methods
 
     In addition, the following undocumented field is known to be sometimes returned by user.get_stations().
@@ -605,24 +669,18 @@ class Station(Model):
     * meta
     """
 
-    # No model for Flags because I think it semantically makes most sense as a dictionary of bools
+    # TODO: Should info.max_time be datetime? This would warrant making an Info model
 
-    _key = 'name.original'
-
-    def __eq__(self, other):
-        return self.name.original == other.name.original
+    _key = ['name', 'original']
 
     @classmethod
     def _from_get_stations(cls, dict):
         return cls(**dict.to_submodels(name=Station.Name._from_get_stations,
-                                       info=Station.Info._from_get_stations,
                                        dates=Station.Dates._from_get_stations,
                                        position=Station.Position._from_get_stations,
                                        config=Station.Config._from_get_stations,
-                                       metadata=Station.Metadata._from_get_stations,
                                        networking=Station.Networking._from_get_stations,
-                                       warnings=Station.Warnings._from_get_stations,
-                                       licenses=Station.Licenses._from_get_stations))
+                                       warnings=Station.Warnings._from_get_stations))
 
     def to_update(self):
         """
@@ -650,39 +708,9 @@ class Station(Model):
             return cls(**dict)
 
         def _to_update(self):
-            try:
-                ret = self.custom
-            except AttributeError:
+            if 'custom' not in self or not self['custom']:
                 raise Model.InclusionVeto()
-            if ret:
-                return ret
-            else:
-                raise Model.InclusionVeto()
-
-    # TODO: Should max_time be datetime?
-    class Info(Model):
-        """
-        Fields that directly correspond to the official API documentation are:
-        * device_id
-        * device_name
-        * uid
-        * firmware
-        * hardware
-        * description
-        * max_time
-
-        In addition, the following undocumented fields are known to be sometimes returned by user.get_licenses().
-        These and other unexpected fields will be present exactly as returned by the server:
-        * programmed
-        * apn_table
-
-        Finally, the following field will only be present if the Station model is bound to a StationType:
-        * type - a reference to StationType
-        """
-
-        @classmethod
-        def _from_get_stations(cls, dict):
-            return cls(**dict)
+            return self['custom']
 
     class Dates(Model):
         """
@@ -833,16 +861,6 @@ class Station(Model):
                 return self._to_dict('active', 'auto_exposure', 'brightness_ref', 'global_gain', 'integration_time',
                                      'max_integration_time', 'square_spots')
 
-    class Metadata(Model):
-        """
-        Field that directly corresponds to the official API documentation is:
-        * last_battery
-        """
-
-        @classmethod
-        def _from_get_stations(cls, dict):
-            return cls(**dict)
-
     class Networking(Model):
         """
         Fields that directly correspond to the official API documentation are:
@@ -908,17 +926,6 @@ class Station(Model):
 
             def _to_update(self):
                 return self._to_dict('num', 'name', 'active')
-
-    class Licenses(Model):
-        """
-        Fields that directly correspons to the official API documentation are:
-        * models
-        * Forecast
-        """
-
-        @classmethod
-        def _from_get_stations(cls, dict):
-            return cls(**dict)
 
 
 class Sensor(Model):
@@ -986,8 +993,8 @@ class SensorGroup(Model):
                 group.bind(sensors)
         """
 
-        self._bind(sensors, self_key_attr='group', self_aggr_attr='sensors', self_aggr_type=dict,
-                   submodel_key_attr='group', submodel_id_attr='code')
+        self._bind(sensors, self_aggr_item='sensors', self_aggr_type=dict,
+                   submodel_key_item='group')
 
 
 class DiseaseGroup(Model):
@@ -1008,44 +1015,6 @@ class DiseaseGroup(Model):
         return cls(**dict.to_submodel_lists(models=DiseaseModel._from_get_diseases))
 
 
-# TODO: Honestly, I think we'll have to parse values like settings.period, settings.resolution sooner or later,
-# And also I'm afraid ignoring the Results and settings.aggregation fields is not appropriate, even though
-# they're undocumented, they seem to be serving an important purpose
-class DiseaseModel(Model):
-    """
-    Fields that directly correspond to the official API documentation are:
-    * key
-    * name
-    * version
-    * settings
-
-    In addition, the following undocumented field is known to be sometimes returned by user.get_stations().
-    This and other unexpected fields will be present exactly as returned by the server:
-    * results
-    """
-
-    _key = 'key'
-
-    @classmethod
-    def _from_get_diseases(cls, dict):
-        return cls(**dict.to_submodels(settings=DiseaseModel.Settings._from_get_diseases))
-
-    class Settings(Model):
-        """
-        Fields that directly correspond to the official API documentation are:
-        * period
-        * resolution
-
-        In addition, the following undocumented field is known to be sometimes returned by user.get_stations().
-        This and other unexpected fields will be present exactly as returned by the server:
-        * aggregation
-        """
-
-        @classmethod
-        def _from_get_diseases(cls, dict):
-            return cls(**dict)
-
-
 class ApiClient:
     """
     Public methods of classes nested in this class directly correspond to API endpoints.
@@ -1063,7 +1032,7 @@ class ApiClient:
         async def _send(self, *args):
             return await self._client._send(*args)
 
-        def _to_model(self, model=None, factory_name='', type=Model, pass_index=False):
+        def _to_model(self, model=None, factory_name='', type=Model, pass_index=False, pass_list=False):
 
             async def send(*args):
                 try:
@@ -1073,17 +1042,22 @@ class ApiClient:
                     elif type == list and isinstance(ret.response, list):
                         return ListResponse._from_response(ret)\
                             (Model._from_list(ret.response,
-                                              {'factory': getattr(model, factory_name), 'pass_index': pass_index}))
+                                              {'factory': getattr(model, factory_name),
+                                               'pass_index': pass_index,
+                                               'pass_list': pass_list}))
                     elif type == bool and isinstance(ret.response, bool):
                         return ApiBoolResponse._from_response(ret)(ret.response)
                     elif type == dict and isinstance(ret.response, dict):
                         return DictResponse._from_response(ret)\
                             (Model._from_dict(ret.response,
-                                              {'factory': getattr(model, factory_name), 'pass_index': pass_index}))
+                                              {'factory': getattr(model, factory_name),
+                                               'pass_index': pass_index,
+                                               'pass_list': pass_list}))
                     else:
                         return ret
                 except ApiResponseException as api_response_exception:
                     raise api_response_exception
+
             return send
 
         @staticmethod
@@ -1165,7 +1139,6 @@ class ApiClient:
 
             return await self._to_model(Station, '_from_get_stations', type=list)('GET', 'user/stations')
 
-        # TODO: Model here
         async def get_licenses(self):
             """
             This method corresponds to the GET /user/licenses API endpoint.
@@ -1212,7 +1185,7 @@ class ApiClient:
             If the server returns a dictionary, this method returns a dictionary of StationType models, that can later
             be bound to the returned value of user.get_stations().
             """
-            return await self._to_model(StationType, '_from_get_types', type=dict, pass_index=True)\
+            return await self._to_model(StationType, '_from_get_types', type=dict, pass_index=True, pass_list=True)\
                 ('GET', 'system/types')
 
         # My current understanding is that providing models for the two methods below will be overkill-sh.
@@ -1235,17 +1208,14 @@ class ApiClient:
             This method corresponds to the GET /system/diseases API endpoint.
             It should return a list of DiseaseGroup models.
             """
-            return await self._to_model(DiseaseGroup, '_from_get_diseases', type=list)('GET', 'system/diseases')
+            return await self._send('GET', 'system/diseases')
 
     class Station(ClientRoute):
         """
         Contains methods corresponding to the /station routes of the official API.
         """
 
-        # TODO: tl;dr: Saner updating of bindings + remove code repetitions
-        # Assumption is that a station's device type doesn't change in time... Because otherwise this throws
-        # This can be fixed ofc, but what is the appropriate level of paranoia wrt what this server returns?
-        # Also this is another point where code may get very repetitive very soon... also will have to fix this
+        # TODO: remove code repetitions? Even more meta-meta?
         async def get(self, station_id):
             """
             This method corresponds to the GET /station/{{STATION-ID}} route of the official API.
@@ -1258,15 +1228,17 @@ class ApiClient:
             if isinstance(station_id, Station):
                 try:
                     try:
-                        type = station_id.info.type
-                    except AttributeError:
+                        type = get_nested_item(station_id, ['info', 'type'])
+                    except KeyError:
                         pass  # Unbound; the returned station will be unbound as well
-                    station_id = station_id.name.original
-                except AttributeError:
+                    station = station_id
+                    station_id = get_nested_item(station, station._key)
+                except KeyError:
                     raise ValueError
             ret = await self._to_model(Station, '_from_get_stations')('GET', f'station/{station_id}')
             try:
-                type.bind(ret)
+                type._unbind(station)
+                type._force_bind(ret)
             except NameError:
                 pass  # type not defined, we were not passed a bound station
             return ret
