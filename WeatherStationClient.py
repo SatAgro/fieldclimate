@@ -386,7 +386,7 @@ class Model(dict):
         del_nested_item(submodel, submodel_ref_item)
 
     def _bind(self, submodels, self_aggr_item, self_aggr_type, submodel_key_item,
-              submodel_ref_item=None):
+              submodel_ref_item=None, convert_submodel_id=None):
 
         self_key_item = self._key
 
@@ -430,6 +430,8 @@ class Model(dict):
                     elif self_aggr_type == dict:
                         submodel_id_item = submodel._key
                         submodel_id = get_nested_item(submodel, submodel_id_item)
+                        if convert_submodel_id is not None:
+                            submodel_id = convert_submodel_id(submodel_id)
                         aggr[submodel_id] = submodel
                     set_nested_item(submodel, submodel_ref_item, self)
 
@@ -894,6 +896,7 @@ class Station(Model):
                 dict['username'] = dict['usernme']
             return cls(**dict.ignore('usernme'))
 
+    # TODO Interface to Sensors
     class Warnings(Model):
         """
         Fields that directly correspond to the official API documentation are:
@@ -975,8 +978,9 @@ class SensorGroup(Model):
     @classmethod
     def _from_get_groups(cls, _dict):
         ret = cls(**_dict.to_submodel_dicts(sensors=Sensor._from_get_sensors))
-        if hasattr(ret, 'sensors') and isinstance(ret.sensors, dict):
-            ret.bind(dict(ret.sensors))
+        if 'sensors' in ret and isinstance(ret['sensors'], dict):
+            sensors = dict(ret['sensors'])
+            ret.bind(sensors)
         return ret
 
     def bind(self, sensors):
@@ -994,7 +998,7 @@ class SensorGroup(Model):
         """
 
         self._bind(sensors, self_aggr_item='sensors', self_aggr_type=dict,
-                   submodel_key_item='group')
+                   submodel_key_item='group', convert_submodel_id=str)
 
 
 class DiseaseGroup(Model):
