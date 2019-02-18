@@ -10,7 +10,7 @@ async with HMAC(public_key, private_key) as client:
     # do all your stuff here, within this connection
 ```
 
-Methods corresponding to API endpoints return `ApiResponse` objects, whose fields include include:
+Methods corresponding to API endpoints return `ApiResponse` objects, whose fields include:
 * `code` - the HTTP response code returned by the server;
 * `response` - the response returned by the server, parsed from JSON into Python data types.
 
