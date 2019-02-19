@@ -50,7 +50,26 @@ The relevant methods include `data.get_last_data()` or, if we want data from an 
 
 Both methods also support one additional argument: `format` - whose value determines the format of the response. Examples below will use `format='optimized'`.
 
-Let's say we are interested in the daily average temperature from the last week and the first station from the above list has a sensor that supports this. Let's say this sensor's tag is `18_X_X_506`. Since this sensor supports the `avg` aggregation, we can print out the values we're interested in like this:
+Let's say we are interested in the daily average temperature from the last week. We can obtain the list of sensors that return data for a given time period in the following manner:
+
+```py
+async with HMAC(public_key, private_key) as client:
+    stations = await client.user.list_of_user_devices()
+    station_id = stations.response[0]['name']['original']
+    station_data = await client.data.get_last_data(station_id, 'daily', '1w', 'optimized')
+    for (sensor_tag, sensor) in station_data.response['data'].items():
+        print ('Sensor {} has tag {} and supports the following aggregations: {}'.format(
+            sensor['name'], sensor_tag, list(sensor['aggr'].keys())
+        ))
+```
+
+Let's say that in the output of the above script we see this line, corresponding to the sensor we're interested in:
+
+```
+Sensor HC Air temperature has tag 14_X_X_506 and supports the following aggregations: ['min', 'max', 'avg']
+```
+
+We can now print out the values we're interested in like this:
 
 ```py
 async with HMAC(public_key, private_key) as client:
@@ -58,10 +77,16 @@ async with HMAC(public_key, private_key) as client:
     station_id = stations.response[0]['name']['original']
     station_data = await client.data.get_last_data(station_id, 'daily', '1w', 'optimized')
     dates = station_data.response['dates']
-    average_temperatures = station_data.response['data']['18_X_X_506']['aggr']['avg']
+    sensor_tag = '18_X_X_506'
+    unit = station_data.response['data'][sensor_tag]['unit']
+    average_temperatures = station_data.response['data'][sensor_tag]['aggr']['avg']
     for (date, average_temperature) in zip(dates, average_temperatures):
-        print('On day {} the average temperature was {}.'.format(date, average_temperature))
+        print('On day {} the average temperature was {} {}.'.format(
+            date, average_temperature, unit
+        ))
 ```
+
+(The sensor's tag is always constructed in the following manner: CHAIN_MAC_SERIAL_CODE. Therefore, if we know our station's configuration, we can skip manually looking for the sensor we need and instead construct its tag straight off.)
 
 Alternatively, let's say we're rather interested in monthly precipitation sums from last year. Since our second station has a sensor with tag `5_X_X_6` that supports it, we can obtain these values like this:
 
@@ -71,7 +96,11 @@ async with HMAC(public_key, private_key) as client:
     station_id = stations.response[1]['name']['original']
     station_data = await client.data.get_last_data(station_id, 'monthly', '12m', 'optimized')
     dates = station_data.response['dates']
-    precipitation_sums = station_data.response['data']['5_X_X_6']['aggr']['sum']
+    sensor_tag = '5_X_X_6'
+    unit = station_data.response['data'][sensor_tag]['unit']
+    precipitation_sums = station_data.response['data'][sensor_tag]['aggr']['sum']
     for (date, precipitation_sum) in zip(dates, precipitation_sums):
-        print('On month {} the precipitation sum was {}.'.format(date, precipitation_sum))
+        print('On month {} the precipitation sum was {} {}.'.format(
+            date, precipitation_sum, unit
+        ))
 ```
