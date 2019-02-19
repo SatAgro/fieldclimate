@@ -7,7 +7,7 @@ from parameterized import parameterized
 
 from src.api import ApiClient
 from src.connection.oauth2 import OAuth2, SimpleProvider, client_secret, client_id
-from src.http import Request, ResponseException
+from src.reqresp import Request, ResponseException
 
 
 class AsyncMock(MagicMock):

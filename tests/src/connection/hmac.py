@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from src.api import ApiClient
 from src.connection.hmac import HMAC
-from src.http import Request
+from src.reqresp import Request
 
 
 class AsyncMock(MagicMock):

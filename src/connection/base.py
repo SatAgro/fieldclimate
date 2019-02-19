@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import aiohttp
 
 from src.api import ApiClient
-from src.http import Response, Request, ResponseException
+from src.reqresp import Response, Request, ResponseException
 
 
 class ConnectionBase(ABC):

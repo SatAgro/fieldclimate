@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from aiohttp import web
 
 from src.connection.base import ConnectionBase
-from src.http import ResponseException
+from src.reqresp import ResponseException
 from src.tools import get_credentials
 
 credentials = get_credentials()
