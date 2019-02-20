@@ -15,8 +15,6 @@ class Request:
         return self.__dict__ == other.__dict__
 
 
-
-
 class ResponseException(Exception):
     def __init__(self, code, response):
         self.code = code

@@ -2,8 +2,8 @@ from abc import ABC, abstractmethod
 
 import aiohttp
 
-from src.api import ApiClient
-from src.reqresp import Response, Request, ResponseException
+from fieldclimate.api import ApiClient
+from fieldclimate.reqresp import Response, Request, ResponseException
 
 
 class ConnectionBase(ABC):

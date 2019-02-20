@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 from freezegun import freeze_time
 from parameterized import parameterized
 
-from src.api import ApiClient
-from src.connection.hmac import HMAC
-from src.reqresp import Request
+from fieldclimate.api import ApiClient
+from fieldclimate.connection.hmac import HMAC
+from fieldclimate.reqresp import Request
 
 
 class AsyncMock(MagicMock):

@@ -4,9 +4,9 @@ from abc import ABC, abstractmethod
 
 from aiohttp import web
 
-from src.connection.base import ConnectionBase
-from src.reqresp import ResponseException
-from src.tools import get_credentials
+from fieldclimate.connection.base import ConnectionBase
+from fieldclimate.reqresp import ResponseException
+from fieldclimate.tools import get_credentials
 
 credentials = get_credentials()
 client_id = credentials['client_id']
@@ -42,7 +42,7 @@ class WebBasedProvider(AuthCodeProvider):
         self._auth_code = request.query.get('code', None)
         if self._auth_code is not None:
             self._event.set()
-        return web.Response(text=f"Received code {self._auth_code}")
+        return web.Response(text='Received code {}'.format(self._auth_code))
 
     def _make_app(self):
         app = web.Application()

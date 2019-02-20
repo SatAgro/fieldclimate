@@ -2,7 +2,7 @@ from datetime import datetime
 
 from Crypto.Hash import SHA256, HMAC as HASH_HMAC
 
-from src.connection.base import ConnectionBase
+from fieldclimate.connection.base import ConnectionBase
 
 
 class HMAC(ConnectionBase):

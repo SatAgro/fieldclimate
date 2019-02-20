@@ -1,7 +1,18 @@
 # fieldclimate
 A Python client for the Pessl Instruments GmbH RESTful API.
 
+# Installation
+Download repository and run below command in its root folder.
+
+``
+pip install .
+``
+
+# Requirements
+This package is compatible with python 3.5.6+.
+
 # Examples:
+Source codes can be found [here](example).
 
 1. **Establishing connection**:
 
@@ -25,7 +36,7 @@ async with HMAC(public_key, private_key) as client:
         print(user_response.response['username'])
 ```
 
-3. **Retrievining all devices attached to your account**:
+3. **Retrieving all devices attached to your account**:
 
 ```py
 async with HMAC(public_key, private_key) as client:

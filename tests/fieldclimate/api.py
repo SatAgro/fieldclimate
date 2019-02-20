@@ -1,8 +1,8 @@
 import asyncio
 import unittest
 
-from src.api import ApiClient
-from src.connection.base import ConnectionBase
+from fieldclimate.api import ApiClient
+from fieldclimate.connection.base import ConnectionBase
 
 
 class MockSession:

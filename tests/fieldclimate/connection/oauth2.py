@@ -5,9 +5,16 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from src.api import ApiClient
-from src.connection.oauth2 import OAuth2, SimpleProvider, client_secret, client_id
-from src.reqresp import Request, ResponseException
+from fieldclimate.api import ApiClient
+from fieldclimate.reqresp import Request, ResponseException
+
+from test.support import EnvironmentVarGuard
+
+env = EnvironmentVarGuard()
+env.set('FIELDCLIMATE_CLIENT_ID', 'id')
+env.set('FIELDCLIMATE_CLIENT_SECRET', 'secret')
+with env:
+    from fieldclimate.connection.oauth2 import OAuth2, SimpleProvider, client_secret, client_id
 
 
 class AsyncMock(MagicMock):
@@ -19,6 +26,9 @@ class TestOAuth2(unittest.TestCase):
     auth_code = '41c6596fd58984ece81ae06c8987b4adfa2a411'
 
     def setUp(self):
+        self.env = EnvironmentVarGuard()
+        self.env.set('FIELDCLIMATE_CLIENT_ID', 'id')
+        self.env.set('FIELDCLIMATE_CLIENT_SECRET', 'secret')
         self.oauth2 = OAuth2(SimpleProvider(TestOAuth2.auth_code))
 
     @parameterized.expand([
@@ -79,9 +89,8 @@ class TestOAuth2(unittest.TestCase):
         self.assertEqual(self.oauth2._access_token, 'mock_response0')
         self.assertEqual(self.oauth2._refresh_token, 'mock_response1')
 
-
     @parameterized.expand([
-        ('MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3','GET', 'station/info', None, {'Accept': 'application/json', 'Authorization': 'Authorization: Bearer MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3'})
+        ('MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3', 'GET', 'station/info', None, {'Accept': 'application/json', 'Authorization': 'Authorization: Bearer MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3'})
     ])
     def test_make_request_access_token(self, access_token, method, route, data, headers):
         self.oauth2._access_token = access_token
@@ -96,7 +105,7 @@ class TestOAuth2(unittest.TestCase):
         mock.assert_called_once_with(method, '{}/{}'.format(ApiClient.api_uri, route), json=data, headers=headers)
 
     @parameterized.expand([
-        ('MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3','GET', 'station/info', None, {'Accept': 'application/json', 'Authorization': 'Authorization: Bearer MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3'})
+        ('MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3', 'GET', 'station/info', None, {'Accept': 'application/json', 'Authorization': 'Authorization: Bearer MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3'})
     ])
     def test_make_request_no_access_token(self, access_token, method, route, data, headers):
         def side_effect():
@@ -121,7 +130,7 @@ class TestOAuth2(unittest.TestCase):
         mock_get_token.assert_called_once_with()
 
     @parameterized.expand([
-        ('MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3', 'fdb8fdbecf1d03ce5e6125c067733c0d51de209c','GET', 'station/info', None, {'Accept': 'application/json', 'Authorization': 'Authorization: Bearer fdb8fdbecf1d03ce5e6125c067733c0d51de209c'})
+        ('MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3', 'fdb8fdbecf1d03ce5e6125c067733c0d51de209c', 'GET', 'station/info', None, {'Accept': 'application/json', 'Authorization': 'Authorization: Bearer fdb8fdbecf1d03ce5e6125c067733c0d51de209c'})
     ])
     def test_make_request_access_token_expired(self, expired_access_token, access_token, method, route, data, headers):
         def get_token_side_effect():
