@@ -19,7 +19,8 @@ class CSVSerializer:
                 for row in self.rows:
                     writer.write_row(row)
 
-    def write_users(self, path, users, **kwargs):
+    @staticmethod
+    def write_users(path, users, **kwargs):
         """Serialize users to csv. User is data type returned by User.user_information"""
         headers = ['username',
                    'name',
@@ -43,7 +44,8 @@ class CSVSerializer:
         rows = (get_few(prettify_user(user), headers, '')for user in users)
         return CSVSerializer.CSV(headers, rows).write(path, **kwargs)
 
-    def write_sensors(self, path, sensors, **kwargs):
+    @staticmethod
+    def write_sensors(path, sensors, **kwargs):
         """Serialize sensors to csv. Sensors is data type returned by System.sensors, Station.sensors"""
         headers = ['No.',
                    'name',
@@ -72,7 +74,8 @@ class CSVSerializer:
         rows = (get_few(prettify_sensor(index, sensor), headers, '') for index, sensor in enumerate(sensors))
         return CSVSerializer.CSV(headers, rows).write(path, **kwargs)
 
-    def write_data(self, path, data, **kwargs):
+    @staticmethod
+    def write_data(path, data, **kwargs):
         """Serialize data to csv. Data is data type returned by Data.get_last_data, Data.get_data_between_period(normal format),"""
         headers = ['date',
                    'sensor'
