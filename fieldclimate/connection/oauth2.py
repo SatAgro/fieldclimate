@@ -6,9 +6,9 @@ from aiohttp import web
 
 from fieldclimate.connection.base import ConnectionBase
 from fieldclimate.reqresp import ResponseException
-from fieldclimate.tools import get_credentials
+from fieldclimate.tools import get_client_credentials
 
-credentials = get_credentials()
+credentials = get_client_credentials()
 client_id = credentials['client_id']
 client_secret = credentials['client_secret']
 auth_url = 'https://oauth.fieldclimate.com/authorize?response_type=code&client_id={}&state=xyz'.format(client_id)
