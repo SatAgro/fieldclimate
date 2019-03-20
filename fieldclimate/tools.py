@@ -26,8 +26,5 @@ def flatten(target, parent_key='', sep='_'):
     return dict(items)
 
 
-
-
-
-
-
+def find(collection, condition):
+    return next((item for item in collection if condition(item)))
