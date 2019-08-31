@@ -6,6 +6,13 @@ from fieldclimate.connection.base import ConnectionBase
 
 
 class MockSession:
+    async def __aenter__(self):
+        self._aentered = True
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        del self._aentered
+
     class MockResponse:
         def __init__(self, method, url, json, headers):
             self.method = method
@@ -45,15 +52,6 @@ class TestApiCalls(unittest.TestCase):
         self.assertEqual(mock_response['body'], expected_body)
         self.assertEqual(mock_response['headers'], {'Accept': 'application/json'})
 
-    def setUp(self):
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(None)
-
-    def tearDown(self):
-        # Jesli tego nie zawołam, 14. w kolejnosci test (a nie inny??) rzuci warningiem ze unclosed event loop
-        # TODO: Uczciwie przyznaje: nie wiem, dlaczego
-        self.loop.close()
-
     async def get_response(self, section, method, *args, **kwargs):
         async with MockConnection() as client:
             section_obj = getattr(client, section)
@@ -62,7 +60,7 @@ class TestApiCalls(unittest.TestCase):
             return result.response
 
     def call(self, section, method, *args, **kwargs):
-        return self.loop.run_until_complete(self.get_response(section, method, *args, **kwargs))
+        return asyncio.get_event_loop().run_until_complete(self.get_response(section, method, *args, **kwargs))
 
 
 class TestUserCalls(TestApiCalls):

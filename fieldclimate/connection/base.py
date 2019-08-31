@@ -7,6 +7,9 @@ from fieldclimate.reqresp import Response, Request, ResponseException
 
 
 class ConnectionBase(ABC):
+    def with_client_session(self, session):
+        self._session = session
+        return ApiClient(self)
 
     async def __aenter__(self):
         self._session = aiohttp.ClientSession()
