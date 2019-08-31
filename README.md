@@ -21,6 +21,14 @@ async with HMAC(public_key, private_key) as client:
     # do all your stuff here, within this connection
 ```
 
+It is also possible to pass an existing `aiohttp` client session in this way:
+
+```py
+async with aiohttp.ClientSession() as session:
+    client = HMAC(public_key, private_key).with_client_session(session)
+    # do all your stuff here, within this connection
+```
+
 Methods corresponding to API endpoints return `ApiResponse` objects, whose fields include:
 * `code` - the HTTP response code returned by the server;
 * `response` - the response returned by the server, parsed from JSON into Python data types.
