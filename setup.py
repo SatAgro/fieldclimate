@@ -5,7 +5,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='fieldclimate',
-    version='1.0',
+    version='1.1',
     install_requires=required,
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     url='https://github.com/SatAgro/fieldclimate',
